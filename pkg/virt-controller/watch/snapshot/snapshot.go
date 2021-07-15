@@ -613,6 +613,7 @@ func (ctrl *VMSnapshotController) updateSnapshotStatus(vmSnapshot *snapshotv1.Vi
 			}
 
 			reason := "Snapshot cancelled"
+			vmSnapshotCpy.Status.Phase = snapshotv1.Failed
 			vmSnapshotCpy.Status.Error = newError(reason)
 			updateSnapshotCondition(vmSnapshotCpy, newProgressingCondition(corev1.ConditionFalse, reason))
 			updateSnapshotCondition(vmSnapshotCpy, newReadyCondition(corev1.ConditionFalse, reason))
@@ -633,6 +634,7 @@ func (ctrl *VMSnapshotController) updateSnapshotStatus(vmSnapshot *snapshotv1.Vi
 	}
 
 	if vmSnapshotProgressing(vmSnapshotCpy) {
+		vmSnapshotCpy.Status.Phase = snapshotv1.InProgress
 		source, err := ctrl.getSnapshotSource(vmSnapshot)
 		if err != nil {
 			return err
@@ -675,9 +677,11 @@ func (ctrl *VMSnapshotController) updateSnapshotStatus(vmSnapshot *snapshotv1.Vi
 		updateSnapshotCondition(vmSnapshotCpy, newProgressingCondition(corev1.ConditionFalse, "In error state"))
 		updateSnapshotCondition(vmSnapshotCpy, newReadyCondition(corev1.ConditionFalse, "Error"))
 	} else if vmSnapshotReady(vmSnapshotCpy) {
+		vmSnapshotCpy.Status.Phase = snapshotv1.Succeeded
 		updateSnapshotCondition(vmSnapshotCpy, newProgressingCondition(corev1.ConditionFalse, "Operation complete"))
 		updateSnapshotCondition(vmSnapshotCpy, newReadyCondition(corev1.ConditionTrue, "Operation complete"))
 	} else {
+		vmSnapshotCpy.Status.Phase = snapshotv1.Unknown
 		updateSnapshotCondition(vmSnapshotCpy, newProgressingCondition(corev1.ConditionUnknown, "Unknown state"))
 		updateSnapshotCondition(vmSnapshotCpy, newReadyCondition(corev1.ConditionUnknown, "Unknown state"))
 	}
