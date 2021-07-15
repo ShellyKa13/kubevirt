@@ -52,6 +52,8 @@ const (
 
 	volumeSnapshotMissingEvent = "VolumeSnapshotMissing"
 
+	vmSnapshotDeadlineExceededError = "snapshot deadline exceeded"
+
 	snapshotRetryInterval = 5 * time.Second
 )
 
@@ -70,8 +72,17 @@ func vmSnapshotError(vmSnapshot *snapshotv1.VirtualMachineSnapshot) *snapshotv1.
 	return nil
 }
 
+func vmSnapshotFailed(vmSnapshot *snapshotv1.VirtualMachineSnapshot) bool {
+	return vmSnapshot.Status.Phase == snapshotv1.Failed
+}
+
+func vmSnapshotSucceeded(vmSnapshot *snapshotv1.VirtualMachineSnapshot) bool {
+	return vmSnapshot.Status.Phase == snapshotv1.Succeeded
+}
+
 func vmSnapshotProgressing(vmSnapshot *snapshotv1.VirtualMachineSnapshot) bool {
-	return vmSnapshotError(vmSnapshot) == nil && !vmSnapshotReady(vmSnapshot)
+	return vmSnapshotError(vmSnapshot) == nil && !vmSnapshotReady(vmSnapshot) &&
+		!vmSnapshotFailed(vmSnapshot) && !vmSnapshotSucceeded(vmSnapshot)
 }
 
 func getVMSnapshotContentName(vmSnapshot *snapshotv1.VirtualMachineSnapshot) string {
@@ -108,10 +119,13 @@ func (ctrl *VMSnapshotController) updateVMSnapshot(vmSnapshot *snapshotv1.Virtua
 		return 0, err
 	}
 
-	if !vmSnapshotProgressing(vmSnapshot) {
+	if !vmSnapshotProgressing(vmSnapshot) || vmSnapshotDeadlineExceeded(vmSnapshot) {
 		if source != nil {
 			// unlock the source if done/error
 			if _, err := source.Unlock(); err != nil {
+				return 0, err
+			}
+			if err := source.Unfreeze(); err != nil {
 				return 0, err
 			}
 		}
@@ -138,7 +152,7 @@ func (ctrl *VMSnapshotController) updateVMSnapshot(vmSnapshot *snapshotv1.Virtua
 			// since updating metadata, don't attempt to update status
 			updated, err := ctrl.initVMSnapshot(vmSnapshot)
 			if updated || err != nil {
-				return 0, err
+				return timeUntilDeadline(vmSnapshot), err
 			}
 
 			content, err := ctrl.getContent(vmSnapshot)
@@ -159,6 +173,10 @@ func (ctrl *VMSnapshotController) updateVMSnapshot(vmSnapshot *snapshotv1.Virtua
 		return 0, err
 	}
 
+	if retry == 0 {
+		return timeUntilDeadline(vmSnapshot), nil
+	}
+
 	return retry, nil
 }
 
@@ -173,6 +191,10 @@ func (ctrl *VMSnapshotController) updateVMSnapshotContent(content *snapshotv1.Vi
 	if err != nil || vmSnapshot == nil {
 		return 0, err
 	}
+	if vmSnapshotFailed(vmSnapshot) {
+		return 0, nil
+	}
+
 	currentlyReady := vmSnapshotContentReady(content)
 	currentlyError := (content.Status != nil && content.Status.Error != nil) || vmSnapshotError(vmSnapshot) != nil
 
@@ -605,13 +627,6 @@ func (ctrl *VMSnapshotController) updateSnapshotStatus(vmSnapshot *snapshotv1.Vi
 	if vmSnapshotCpy.DeletionTimestamp != nil {
 		// go into error state
 		if vmSnapshotProgressing(vmSnapshotCpy) {
-			if source != nil {
-				if err := source.Unfreeze(); err != nil {
-					log.Log.Info("XXX unfreeze error")
-					return err
-				}
-			}
-
 			reason := "Snapshot cancelled"
 			vmSnapshotCpy.Status.Phase = snapshotv1.Failed
 			vmSnapshotCpy.Status.Error = newError(reason)
@@ -633,7 +648,14 @@ func (ctrl *VMSnapshotController) updateSnapshotStatus(vmSnapshot *snapshotv1.Vi
 		}
 	}
 
-	if vmSnapshotProgressing(vmSnapshotCpy) {
+	if vmSnapshotDeadlineExceeded(vmSnapshotCpy) {
+		if vmSnapshotFailed(vmSnapshotCpy) {
+			return nil
+		}
+		vmSnapshotCpy.Status.Phase = snapshotv1.Failed
+		updateSnapshotCondition(vmSnapshotCpy, newProgressingCondition(corev1.ConditionFalse, vmSnapshotDeadlineExceededError))
+		updateSnapshotCondition(vmSnapshotCpy, newFailureCondition(corev1.ConditionTrue, vmSnapshotDeadlineExceededError))
+	} else if vmSnapshotProgressing(vmSnapshotCpy) {
 		vmSnapshotCpy.Status.Phase = snapshotv1.InProgress
 		source, err := ctrl.getSnapshotSource(vmSnapshot)
 		if err != nil {
@@ -932,4 +954,30 @@ func getPVCsFromVolumes(volumes []kubevirtv1.Volume) map[string]string {
 
 func updateSnapshotCondition(ss *snapshotv1.VirtualMachineSnapshot, c snapshotv1.Condition) {
 	ss.Status.Conditions = updateCondition(ss.Status.Conditions, c, false)
+}
+
+func getFailureDeadline(vmSnapshot *snapshotv1.VirtualMachineSnapshot) time.Duration {
+	failureDeadline := snapshotv1.DefaultFailureDeadline
+	if vmSnapshot.Spec.FailureDeadline != nil {
+		failureDeadline = vmSnapshot.Spec.FailureDeadline.Duration
+	}
+
+	return failureDeadline
+}
+
+func timeUntilDeadline(vmSnapshot *snapshotv1.VirtualMachineSnapshot) time.Duration {
+	failureDeadline := getFailureDeadline(vmSnapshot)
+	// No Deadline set by user
+	if failureDeadline == 0 {
+		return failureDeadline
+	}
+	deadline := vmSnapshot.CreationTimestamp.Add(failureDeadline)
+	return time.Until(deadline)
+}
+
+func vmSnapshotDeadlineExceeded(vmSnapshot *snapshotv1.VirtualMachineSnapshot) bool {
+	if vmSnapshotSucceeded(vmSnapshot) {
+		return false
+	}
+	return timeUntilDeadline(vmSnapshot) < 0
 }
