@@ -119,13 +119,13 @@ func (ctrl *VMSnapshotController) updateVMSnapshot(vmSnapshot *snapshotv1.Virtua
 		return 0, err
 	}
 
-	if !vmSnapshotProgressing(vmSnapshot) || vmSnapshotDeadlineExceeded(vmSnapshot) {
+	if !vmSnapshotProgressing(vmSnapshot) {
 		if source != nil {
-			// unlock the source if done/error
-			if _, err := source.Unlock(); err != nil {
+			if err := source.Unfreeze(); err != nil {
 				return 0, err
 			}
-			if err := source.Unfreeze(); err != nil {
+			// unlock the source if done/error
+			if _, err := source.Unlock(); err != nil {
 				return 0, err
 			}
 		}
@@ -134,6 +134,11 @@ func (ctrl *VMSnapshotController) updateVMSnapshot(vmSnapshot *snapshotv1.Virtua
 			if err := ctrl.cleanupVMSnapshot(vmSnapshot); err != nil {
 				return 0, err
 			}
+		}
+	} else if vmSnapshotDeadlineExceeded(vmSnapshot) {
+		err := ctrl.cleanupVMSnapshotContent(vmSnapshot)
+		if err != nil {
+			return 0, err
 		}
 	} else if source != nil {
 		// attempt to lock source
@@ -191,7 +196,7 @@ func (ctrl *VMSnapshotController) updateVMSnapshotContent(content *snapshotv1.Vi
 	if err != nil || vmSnapshot == nil {
 		return 0, err
 	}
-	if vmSnapshotFailed(vmSnapshot) {
+	if vmSnapshotDeadlineExceeded(vmSnapshot) {
 		return 0, nil
 	}
 
@@ -435,9 +440,7 @@ func (ctrl *VMSnapshotController) initVMSnapshot(vmSnapshot *snapshotv1.VirtualM
 	return true, nil
 }
 
-func (ctrl *VMSnapshotController) cleanupVMSnapshot(vmSnapshot *snapshotv1.VirtualMachineSnapshot) error {
-	// TODO check restore in progress
-
+func (ctrl *VMSnapshotController) cleanupVMSnapshotContent(vmSnapshot *snapshotv1.VirtualMachineSnapshot) error {
 	content, err := ctrl.getContent(vmSnapshot)
 	if err != nil {
 		return err
@@ -465,6 +468,22 @@ func (ctrl *VMSnapshotController) cleanupVMSnapshot(vmSnapshot *snapshotv1.Virtu
 		} else {
 			log.Log.V(2).Infof("NOT deleting vmsnapshotcontent %s/%s", content.Namespace, content.Name)
 		}
+	}
+
+	return nil
+}
+
+func (ctrl *VMSnapshotController) cleanupVMSnapshot(vmSnapshot *snapshotv1.VirtualMachineSnapshot) error {
+	// TODO check restore in progress
+
+	if vmSnapshotProgressing(vmSnapshot) {
+		// will put the snapshot in error state
+		return ctrl.updateSnapshotStatus(vmSnapshot, nil)
+	}
+
+	err := ctrl.cleanupVMSnapshotContent(vmSnapshot)
+	if err != nil {
+		return err
 	}
 
 	if controller.HasFinalizer(vmSnapshot, vmSnapshotFinalizer) {
