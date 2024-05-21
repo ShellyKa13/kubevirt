@@ -22,6 +22,7 @@ package clone
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -195,7 +196,7 @@ func (ctrl *VMCloneController) syncTargetVM(vmCloneInfo *vmCloneInfo) syncInfoTy
 
 		if vmCloneInfo.sourceType == sourceTypeVM {
 			if vmClone.Status.SnapshotName == nil {
-				_, syncInfo = ctrl.createSnapshotFromVm(vmClone, vmCloneInfo.sourceVm, syncInfo)
+				syncInfo = ctrl.createSnapshotFromVm(vmClone, vmCloneInfo.sourceVm, syncInfo)
 				return syncInfo
 			}
 		}
@@ -356,7 +357,44 @@ func (ctrl *VMCloneController) updateStatus(origClone *clonev1alpha1.VirtualMach
 	return nil
 }
 
-func (ctrl *VMCloneController) createSnapshotFromVm(vmClone *clonev1alpha1.VirtualMachineClone, vm *k6tv1.VirtualMachine, syncInfo syncInfoType) (*snapshotv1.VirtualMachineSnapshot, syncInfoType) {
+func validateVolumeSnapshotSupport(vm *k6tv1.VirtualMachine) (bool, string) {
+	var result []string
+
+	for _, v := range vm.Spec.Template.Spec.Volumes {
+		if v.PersistentVolumeClaim != nil || v.DataVolume != nil {
+			found := false
+			for _, vss := range vm.Status.VolumeSnapshotStatuses {
+				if v.Name == vss.Name {
+					if !vss.Enabled {
+						result = append(result, fmt.Sprintf("Virtual Machine volume %s does not support snapshots", v.Name))
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				result = append(result, fmt.Sprintf("Virtual Machine volume %s snapshot support unknown", v.Name))
+			}
+		}
+	}
+
+	if len(result) != 0 {
+		return false, strings.Join(result, ",\n")
+	}
+
+	return true, ""
+}
+
+func (ctrl *VMCloneController) createSnapshotFromVm(vmClone *clonev1alpha1.VirtualMachineClone, vm *k6tv1.VirtualMachine, syncInfo syncInfoType) syncInfoType {
+	valid, reason := validateVolumeSnapshotSupport(vm)
+	if !valid {
+		return syncInfoType{
+			isClonePending: true,
+			event:          VMVolumeSnapshotsInvalid,
+			reason:         reason,
+		}
+	}
+
 	snapshot := generateSnapshot(vmClone, vm)
 	log.Log.Object(vmClone).Infof("creating snapshot %s for clone %s", snapshot.Name, vmClone.Name)
 
@@ -364,10 +402,10 @@ func (ctrl *VMCloneController) createSnapshotFromVm(vmClone *clonev1alpha1.Virtu
 	if err != nil {
 		if !errors.IsAlreadyExists(err) {
 			syncInfo.setError(fmt.Errorf("failed creating snapshot %s for clone %s: %v", snapshot.Name, vmClone.Name, err))
-			return snapshot, syncInfo
+			return syncInfo
 		}
 		syncInfo.snapshotName = snapshot.Name
-		return snapshot, syncInfo
+		return syncInfo
 	}
 
 	snapshot = createdSnapshot
@@ -375,7 +413,7 @@ func (ctrl *VMCloneController) createSnapshotFromVm(vmClone *clonev1alpha1.Virtu
 	syncInfo.snapshotName = snapshot.Name
 
 	log.Log.Object(vmClone).V(defaultVerbosityLevel).Infof("snapshot %s was just created, reenqueuing to let snapshot time to finish", snapshot.Name)
-	return snapshot, syncInfo
+	return syncInfo
 }
 
 func (ctrl *VMCloneController) verifySnapshotReady(vmClone *clonev1alpha1.VirtualMachineClone, name, namespace string, syncInfo syncInfoType) (*snapshotv1.VirtualMachineSnapshot, syncInfoType) {

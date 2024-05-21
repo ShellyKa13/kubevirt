@@ -36,8 +36,9 @@ const (
 	TargetVMCreated       Event = "TargetVMCreated"
 	PVCBound              Event = "PVCBound"
 
-	SnapshotDeleted    Event = "SnapshotDeleted"
-	SourceDoesNotExist Event = "SourceDoesNotExist"
+	SnapshotDeleted          Event = "SnapshotDeleted"
+	SourceDoesNotExist       Event = "SourceDoesNotExist"
+	VMVolumeSnapshotsInvalid Event = "VMVolumeSnapshotsInvalid"
 )
 
 type VMCloneController struct {
@@ -121,6 +122,7 @@ func NewVmCloneController(client kubecli.KubevirtClient, vmCloneInformer, snapsh
 	_, err = ctrl.vmInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    ctrl.handleVM,
+			UpdateFunc: func(oldObj, newObj interface{}) { ctrl.handleVM(newObj) },
 			DeleteFunc: ctrl.handleVM,
 		},
 	)
