@@ -23,22 +23,19 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/client-go/tools/cache"
-
-	virtsnapshot "kubevirt.io/kubevirt/pkg/storage/snapshot"
-
-	"k8s.io/apimachinery/pkg/api/errors"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/utils/pointer"
-
+	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/pointer"
 
 	clonev1alpha1 "kubevirt.io/api/clone/v1alpha1"
 	k6tv1 "kubevirt.io/api/core/v1"
 	snapshotv1 "kubevirt.io/api/snapshot/v1beta1"
 	"kubevirt.io/client-go/log"
+
+	virtsnapshot "kubevirt.io/kubevirt/pkg/storage/snapshot"
 )
 
 type cloneSourceType string
@@ -65,9 +62,10 @@ type syncInfoType struct {
 	targetVMCreated bool
 	pvcBound        bool
 
+	event          Event
+	reason         string
 	isCloneFailing bool
-	failEvent      Event
-	failReason     string
+	isClonePending bool
 }
 
 // vmCloneInfo stores the current vmclone information
@@ -134,6 +132,14 @@ func (ctrl *VMCloneController) sync(vmClone *clonev1alpha1.VirtualMachineClone) 
 	if err != nil {
 		return syncInfoType{}, err
 	}
+	if cloneInfo == nil {
+		sourceInfo := vmClone.Spec.Source
+		return syncInfoType{
+			isClonePending: true,
+			event:          SourceDoesNotExist,
+			reason:         fmt.Sprintf("%s %s does not exist in namespace %s", sourceInfo.Kind, sourceInfo.Name, vmClone.Namespace),
+		}, nil
+	}
 
 	if ctrl.getTargetType(cloneInfo.vmClone) == targetTypeVM {
 		return ctrl.syncTargetVM(cloneInfo), nil
@@ -152,7 +158,7 @@ func (ctrl *VMCloneController) retrieveCloneInfo(vmClone *clonev1alpha1.VirtualM
 	switch cloneSourceType(sourceInfo.Kind) {
 	case sourceTypeVM:
 		sourceVMObj, err := ctrl.getSource(vmClone, sourceInfo.Name, vmClone.Namespace, string(sourceTypeVM), ctrl.vmInformer.GetStore())
-		if err != nil {
+		if sourceVMObj == nil || err != nil {
 			return nil, err
 		}
 
@@ -161,7 +167,7 @@ func (ctrl *VMCloneController) retrieveCloneInfo(vmClone *clonev1alpha1.VirtualM
 
 	case sourceTypeSnapshot:
 		sourceSnapshotObj, err := ctrl.getSource(vmClone, sourceInfo.Name, vmClone.Namespace, string(sourceTypeSnapshot), ctrl.snapshotInformer.GetStore())
-		if err != nil {
+		if sourceSnapshotObj == nil || err != nil {
 			return nil, err
 		}
 
@@ -274,21 +280,27 @@ func (ctrl *VMCloneController) updateStatus(origClone *clonev1alpha1.VirtualMach
 		phaseChanged = true
 	}
 
-	if syncInfo.isCloneFailing {
-		ctrl.logAndRecord(vmClone, syncInfo.failEvent, syncInfo.failReason)
+	if syncInfo.isClonePending {
+		ctrl.logAndRecord(vmClone, syncInfo.event, syncInfo.reason)
+		updateCloneConditions(vmClone,
+			newProgressingCondition(corev1.ConditionFalse, "Pending"),
+			newReadyCondition(corev1.ConditionFalse, syncInfo.reason),
+		)
+	} else if syncInfo.isCloneFailing {
+		ctrl.logAndRecord(vmClone, syncInfo.event, syncInfo.reason)
 		assignPhase(clonev1alpha1.Failed)
 		updateCloneConditions(vmClone,
 			newProgressingCondition(corev1.ConditionFalse, "Failed"),
 			newReadyCondition(corev1.ConditionFalse, "Failed"),
 		)
+	} else {
+		updateCloneConditions(vmClone,
+			newProgressingCondition(corev1.ConditionTrue, "Still processing"),
+			newReadyCondition(corev1.ConditionFalse, "Still processing"),
+		)
 	}
 
-	updateCloneConditions(vmClone,
-		newProgressingCondition(corev1.ConditionTrue, "Still processing"),
-		newReadyCondition(corev1.ConditionFalse, "Still processing"),
-	)
-
-	if isInPhase(vmClone, clonev1alpha1.PhaseUnset) {
+	if isInPhase(vmClone, clonev1alpha1.PhaseUnset) && !syncInfo.isClonePending {
 		assignPhase(clonev1alpha1.SnapshotInProgress)
 	}
 	if isInPhase(vmClone, clonev1alpha1.SnapshotInProgress) {
@@ -396,8 +408,8 @@ func (ctrl *VMCloneController) getSnapshot(snapshotName string, sourceNamespace 
 		// At this point the snapshot is already created. If it doesn't exist it means that it's deleted for some
 		// reason and the clone should fail
 		syncInfo.isCloneFailing = true
-		syncInfo.failEvent = SnapshotDeleted
-		syncInfo.failReason = fmt.Sprintf("snapshot %s does not exist anymore", snapshotName)
+		syncInfo.event = SnapshotDeleted
+		syncInfo.reason = fmt.Sprintf("snapshot %s does not exist anymore", snapshotName)
 		return nil, syncInfo
 	}
 	if err != nil {
@@ -550,17 +562,7 @@ func (ctrl *VMCloneController) getSource(vmClone *clonev1alpha1.VirtualMachineCl
 		return nil, fmt.Errorf("error getting %s %s in namespace %s from cache: %v", sourceKind, name, namespace, err)
 	}
 	if !exists {
-		err = ctrl.updateStatus(vmClone, syncInfoType{
-			isCloneFailing: true,
-			failEvent:      SourceDoesNotExist,
-			failReason:     fmt.Sprintf("%s %s does not exist in namespace %s", sourceKind, name, namespace),
-		})
-
-		if err != nil {
-			log.Log.Errorf("updating status when source %s does not exist failed: %v", sourceKind, err)
-		}
-
-		return nil, fmt.Errorf("%s %s in namespace %s does not exist", sourceKind, name, namespace)
+		return nil, nil
 	}
 
 	return obj, nil
