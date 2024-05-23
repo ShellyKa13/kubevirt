@@ -1734,6 +1734,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &storageClassName,
+						VolumeName:       "test-pv",
 					},
 				}
 				dv1 := cdiv1.DataVolume{
@@ -1747,7 +1748,19 @@ var _ = Describe("Snapshot controlleer", func() {
 						},
 					},
 				}
+				pvcDv := corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "alpine-dv",
+						Namespace: testNamespace,
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						StorageClassName: &storageClassName,
+						VolumeName:       "alpine-pv",
+					},
+				}
 				pvcSource.Add(&pvc1)
+				pvcSource.Add(&pvcDv)
 				dvSource.Add(&dv1)
 				storageClassSource.Add(createStorageClass())
 				vmSource.Add(vm)
@@ -1849,6 +1862,14 @@ var _ = Describe("Snapshot controlleer", func() {
 							},
 						},
 					},
+					{
+						Name: "disk9",
+						VolumeSource: v1.VolumeSource{
+							PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "unbound-pvc",
+							}},
+						},
+					},
 				}
 
 				pvc1 := corev1.PersistentVolumeClaim{
@@ -1859,6 +1880,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &localStorageClassName,
+						VolumeName:       "pv1",
 					},
 				}
 				pvc2 := corev1.PersistentVolumeClaim{
@@ -1869,6 +1891,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
 						StorageClassName: &storageClassName,
+						VolumeName:       "pv2",
 					},
 				}
 				pvc3 := corev1.PersistentVolumeClaim{
@@ -1879,6 +1902,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &localStorageClassName,
+						VolumeName:       "pv3",
 					},
 				}
 				pvc7 := corev1.PersistentVolumeClaim{
@@ -1889,6 +1913,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: nil,
+						VolumeName:       "pv7",
 					},
 				}
 				pvc8 := corev1.PersistentVolumeClaim{
@@ -1899,6 +1924,17 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: nil,
+						VolumeName:       "pv8",
+					},
+				}
+				pvc9 := corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "unbound-pvc",
+						Namespace: testNamespace,
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						StorageClassName: &storageClassName,
 					},
 				}
 
@@ -1907,6 +1943,7 @@ var _ = Describe("Snapshot controlleer", func() {
 				pvcSource.Add(&pvc3)
 				pvcSource.Add(&pvc7)
 				pvcSource.Add(&pvc8)
+				pvcSource.Add(&pvc9)
 
 				emptyString := ""
 				dv3 := cdiv1.DataVolume{
@@ -1969,7 +2006,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Do(func(ctx context.Context, obj interface{}, options metav1.UpdateOptions) {
 						vm := obj.(*v1.VirtualMachine)
 
-						Expect(vm.Status.VolumeSnapshotStatuses).To(HaveLen(8))
+						Expect(vm.Status.VolumeSnapshotStatuses).To(HaveLen(9))
 
 						Expect(vm.Status.VolumeSnapshotStatuses[0].Name).To(Equal("disk1"))
 						Expect(vm.Status.VolumeSnapshotStatuses[0].Enabled).To(BeFalse())
@@ -1994,22 +2031,27 @@ var _ = Describe("Snapshot controlleer", func() {
 						Expect(vm.Status.VolumeSnapshotStatuses[4].Name).To(Equal("disk5"))
 						Expect(vm.Status.VolumeSnapshotStatuses[4].Enabled).To(BeFalse())
 						Expect(vm.Status.VolumeSnapshotStatuses[4].Reason).
-							To(Equal("No VolumeSnapshotClass: Volume snapshots are not configured for this StorageClass [local] [disk5]"))
+							To(Equal("PVC default/dv-without-pvc-and-storageclass not found"))
 
 						Expect(vm.Status.VolumeSnapshotStatuses[5].Name).To(Equal("disk6"))
 						Expect(vm.Status.VolumeSnapshotStatuses[5].Enabled).To(BeFalse())
 						Expect(vm.Status.VolumeSnapshotStatuses[5].Reason).
-							To(Equal("PVC not found"))
+							To(Equal("PVC default/non-existent-pvc not found"))
 
 						Expect(vm.Status.VolumeSnapshotStatuses[6].Name).To(Equal("disk7"))
 						Expect(vm.Status.VolumeSnapshotStatuses[6].Enabled).To(BeFalse())
 						Expect(vm.Status.VolumeSnapshotStatuses[6].Reason).
-							To(Equal("No VolumeSnapshotClass: Volume snapshots are not configured for this StorageClass [] [disk7]"))
+							To(Equal("Volume disk7 Storage class name not found"))
 
 						Expect(vm.Status.VolumeSnapshotStatuses[7].Name).To(Equal("disk8"))
 						Expect(vm.Status.VolumeSnapshotStatuses[7].Enabled).To(BeFalse())
 						Expect(vm.Status.VolumeSnapshotStatuses[7].Reason).
-							To(Equal("No VolumeSnapshotClass: Volume snapshots are not configured for this StorageClass [] [disk8]"))
+							To(Equal("Volume disk8 Storage class name not found"))
+
+						Expect(vm.Status.VolumeSnapshotStatuses[8].Name).To(Equal("disk9"))
+						Expect(vm.Status.VolumeSnapshotStatuses[8].Enabled).To(BeFalse())
+						Expect(vm.Status.VolumeSnapshotStatuses[8].Reason).
+							To(Equal("Snapshot is not supported for unbound PVC [unbound-pvc]"))
 
 						updateCalled = true
 					})
@@ -2031,6 +2073,7 @@ var _ = Describe("Snapshot controlleer", func() {
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &storageClassName,
+						VolumeName:       "alpine-pv",
 					},
 				}
 				dv := cdiv1.DataVolume{
@@ -2087,25 +2130,18 @@ var _ = Describe("Snapshot controlleer", func() {
 				Expect(updateCalled).To(BeTrue())
 			})
 
-			It("should should use storage class from template when DV does not have it", func() {
+			It("should use storage class from PVC when DV does not have it", func() {
 				vm := createVM()
-				vm.Spec.Template.Spec.Volumes = append(vm.Spec.Template.Spec.Volumes, v1.Volume{
-					Name: "disk2",
-					VolumeSource: v1.VolumeSource{
-						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-							ClaimName: "test-pvc",
-						}},
-					},
-				})
 
 				pvc1 := corev1.PersistentVolumeClaim{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test-pvc",
+						Name:      "alpine-dv",
 						Namespace: testNamespace,
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						StorageClassName: &storageClassName,
+						VolumeName:       "test-pv",
 					},
 				}
 				emptyString := ""
@@ -2143,9 +2179,8 @@ var _ = Describe("Snapshot controlleer", func() {
 					Do(func(ctx context.Context, obj interface{}, options metav1.UpdateOptions) {
 						vm := obj.(*v1.VirtualMachine)
 
-						Expect(vm.Status.VolumeSnapshotStatuses).To(HaveLen(2))
+						Expect(vm.Status.VolumeSnapshotStatuses).To(HaveLen(1))
 						Expect(vm.Status.VolumeSnapshotStatuses[0].Enabled).To(BeTrue())
-						Expect(vm.Status.VolumeSnapshotStatuses[1].Enabled).To(BeTrue())
 						updateCalled = true
 					})
 
