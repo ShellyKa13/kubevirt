@@ -41,6 +41,12 @@ const (
 	VMVolumeSnapshotsInvalid Event = "VMVolumeSnapshotsInvalid"
 )
 
+var (
+	ErrSourceDoesNotExist           = fmt.Errorf("permission denied")
+	ErrVolumeNotSnapshotable        = "Virtual Machine volume %s does not support snapshots"
+	ErrVolumeSnapshotSupportUnknown = "Virtual Machine volume %s snapshot support unknown"
+)
+
 type VMCloneController struct {
 	client                  kubecli.KubevirtClient
 	vmCloneInformer         cache.SharedIndexInformer
