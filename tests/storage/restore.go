@@ -641,6 +641,32 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				By("Creating a VirtualMachineSnapshot")
 				snapshot = createSnapshot(vm)
 
+				sourceVM, err := virtClient.VirtualMachine(testsuite.GetTestNamespace(vm)).Get(context.Background(), vm.Name, metav1.GetOptions{})
+				Expect(err).ShouldNot(HaveOccurred())
+				originalRevisionName := sourceVM.Spec.Instancetype.RevisionName
+				//update instancetype data to make sure the new uses the previous instancetype
+				instancetype, err = virtClient.VirtualMachineInstancetype(testsuite.GetTestNamespace(nil)).Get(context.Background(), sourceVM.Spec.Instancetype.Name, metav1.GetOptions{})
+				instancetype.Spec.Memory.Guest = resource.MustParse("256Mi")
+				_, err = virtClient.VirtualMachineInstancetype(testsuite.GetTestNamespace(nil)).Update(context.Background(), instancetype, metav1.UpdateOptions{})
+				Expect(err).ToNot(HaveOccurred())
+
+				patchSet := patch.New(
+					patch.WithReplace("/spec/instancetype.revisionName", ""),
+				)
+				patchData, err := patchSet.GeneratePayload()
+				Expect(err).NotTo(HaveOccurred())
+
+				sourceVM, err = virtClient.VirtualMachine(sourceVM.Namespace).Patch(context.Background(), sourceVM.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() string {
+					sourceVM, err = virtClient.VirtualMachine(testsuite.GetTestNamespace(sourceVM)).Get(context.Background(), sourceVM.Name, metav1.GetOptions{})
+					Expect(err).ShouldNot(HaveOccurred())
+
+					return sourceVM.Spec.Instancetype.RevisionName
+				}, 3*time.Minute, 3*time.Second).ShouldNot(And(Equal(originalRevisionName), Equal("")), "revision name should change")
+				fmt.Println("SLEEPPPP")
+				time.Sleep(time.Minute * 3)
 				if runStrategy == v1.RunStrategyAlways {
 					By("Stopping the VM")
 					vm = libvmops.StopVirtualMachine(vm)
@@ -662,7 +688,7 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				Expect(currVm.Spec.Preference.RevisionName).To(Equal(originalVMPreferenceRevisionName))
 			},
 				Entry("with a running VM", v1.RunStrategyAlways),
-				Entry("with a stopped VM", v1.RunStrategyHalted),
+				FEntry("with a stopped VM", v1.RunStrategyHalted),
 			)
 
 			DescribeTable("should create new ControllerRevisions for newly restored VM", Label("instancetype", "preference", "restore"), func(runStrategy v1.VirtualMachineRunStrategy) {
@@ -680,6 +706,33 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				By("Creating a VirtualMachineSnapshot")
 				snapshot = createSnapshot(vm)
 
+				sourceVM, err := virtClient.VirtualMachine(testsuite.GetTestNamespace(vm)).Get(context.Background(), vm.Name, metav1.GetOptions{})
+				Expect(err).ShouldNot(HaveOccurred())
+				originalRevisionName := sourceVM.Spec.Instancetype.RevisionName
+				//update instancetype data to make sure the new uses the previous instancetype
+				instancetype, err = virtClient.VirtualMachineInstancetype(testsuite.GetTestNamespace(nil)).Get(context.Background(), sourceVM.Spec.Instancetype.Name, metav1.GetOptions{})
+				instancetype.Spec.Memory.Guest = resource.MustParse("256Mi")
+				_, err = virtClient.VirtualMachineInstancetype(testsuite.GetTestNamespace(nil)).Update(context.Background(), instancetype, metav1.UpdateOptions{})
+				Expect(err).ToNot(HaveOccurred())
+
+				patchSet := patch.New(
+					patch.WithReplace("/spec/instancetype/revisionName", ""),
+				)
+				patchData, err := patchSet.GeneratePayload()
+				Expect(err).NotTo(HaveOccurred())
+
+				sourceVM, err = virtClient.VirtualMachine(sourceVM.Namespace).Patch(context.Background(), sourceVM.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() string {
+					sourceVM, err = virtClient.VirtualMachine(testsuite.GetTestNamespace(sourceVM)).Get(context.Background(), sourceVM.Name, metav1.GetOptions{})
+					Expect(err).ShouldNot(HaveOccurred())
+					fmt.Printf("REVISION NAME: %s", sourceVM.Spec.Instancetype.RevisionName)
+					return sourceVM.Spec.Instancetype.RevisionName
+				}, 3*time.Minute, 3*time.Second).ShouldNot(And(Equal(originalRevisionName), Equal("")), "revision name should change")
+				fmt.Println("SLEEPPPP2")
+				time.Sleep(time.Minute * 3)
+
 				By("Creating a VirtualMachineRestore")
 				restoreVMName := vm.Name + "-new"
 				restore = createRestoreDefWithMacAddressPatch(vm, restoreVMName, snapshot.Name)
@@ -695,21 +748,19 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				libinstancetype.WaitForVMInstanceTypeRevisionNames(restoreVMName, virtClient)
 
 				By("Asserting that the restoreVM has new instancetype and preference controllerRevisions")
-				sourceVM, err := virtClient.VirtualMachine(testsuite.GetTestNamespace(vm)).Get(context.Background(), vm.Name, metav1.GetOptions{})
-				Expect(err).ToNot(HaveOccurred())
 				restoreVM, err := virtClient.VirtualMachine(testsuite.GetTestNamespace(vm)).Get(context.Background(), restoreVMName, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(restoreVM.Spec.Instancetype.RevisionName).ToNot(Equal(sourceVM.Spec.Instancetype.RevisionName))
+				Expect(restoreVM.Spec.Instancetype.RevisionName).ToNot(Equal(originalRevisionName))
 				Expect(restoreVM.Spec.Preference.RevisionName).ToNot(Equal(sourceVM.Spec.Preference.RevisionName))
 
 				By("Asserting that the source and target ControllerRevisions contain the same Object")
 				Expect(libinstancetype.EnsureControllerRevisionObjectsEqual(sourceVM.Spec.Instancetype.RevisionName, restoreVM.Spec.Instancetype.RevisionName, virtClient)).To(BeTrue(), "source and target instance type controller revisions are expected to be equal")
 				Expect(libinstancetype.EnsureControllerRevisionObjectsEqual(sourceVM.Spec.Preference.RevisionName, restoreVM.Spec.Preference.RevisionName, virtClient)).To(BeTrue(), "source and target preference controller revisions are expected to be equal")
-				fmt.Println("SLEEPPPP")
-				time.Sleep(time.Minute * 5)
+				// fmt.Println("SLEEPPPP")
+				// time.Sleep(time.Minute * 5)
 			},
-				FEntry("with a running VM", v1.RunStrategyAlways),
+				Entry("with a running VM", v1.RunStrategyAlways),
 				Entry("with a stopped VM", v1.RunStrategyHalted),
 			)
 		})
