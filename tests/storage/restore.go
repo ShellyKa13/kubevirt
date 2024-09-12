@@ -81,7 +81,7 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 	createRestoreDef := func(vmName, snapshotName string) *snapshotv1.VirtualMachineRestore {
 		return &snapshotv1.VirtualMachineRestore{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "restore-" + vmName,
+				Name: fmt.Sprintf("restore-%s-%s", rand.String(5), snapshotName),
 			},
 			Spec: snapshotv1.VirtualMachineRestoreSpec{
 				Target: corev1.TypedLocalObjectReference{
@@ -98,7 +98,7 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 		var err error
 		s := &snapshotv1.VirtualMachineSnapshot{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "snapshot-" + vm.Name,
+				Name: fmt.Sprintf("snapshot-%s-%s", rand.String(5), vm.Name),
 			},
 			Spec: snapshotv1.VirtualMachineSnapshotSpec{
 				Source: corev1.TypedLocalObjectReference{
@@ -688,7 +688,8 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Waiting until the targetVM is finally created")
-				_ = expectNewVMCreation(restoreVMName)
+				newVM := expectNewVMCreation(restoreVMName)
+				fmt.Printf("NEW VM NAME: %s\n", newVM.Name)
 
 				By("Waiting until the restoreVM has instancetype and preference RevisionNames")
 				libinstancetype.WaitForVMInstanceTypeRevisionNames(restoreVMName, virtClient)
@@ -705,8 +706,10 @@ var _ = SIGDescribe("VirtualMachineRestore Tests", func() {
 				By("Asserting that the source and target ControllerRevisions contain the same Object")
 				Expect(libinstancetype.EnsureControllerRevisionObjectsEqual(sourceVM.Spec.Instancetype.RevisionName, restoreVM.Spec.Instancetype.RevisionName, virtClient)).To(BeTrue(), "source and target instance type controller revisions are expected to be equal")
 				Expect(libinstancetype.EnsureControllerRevisionObjectsEqual(sourceVM.Spec.Preference.RevisionName, restoreVM.Spec.Preference.RevisionName, virtClient)).To(BeTrue(), "source and target preference controller revisions are expected to be equal")
+				fmt.Println("SLEEPPPP")
+				time.Sleep(time.Minute * 5)
 			},
-				Entry("with a running VM", v1.RunStrategyAlways),
+				FEntry("with a running VM", v1.RunStrategyAlways),
 				Entry("with a stopped VM", v1.RunStrategyHalted),
 			)
 		})
