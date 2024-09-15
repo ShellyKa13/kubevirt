@@ -653,6 +653,7 @@ func findDatavolumesForDeletion(oldDVTemplates, newDVTemplates []kubevirtv1.Data
 func (t *vmRestoreTarget) reconcileDataVolumes(restoredVM *kubevirtv1.VirtualMachine) (bool, error) {
 	createdDV := false
 	waitingDV := false
+	updatedRestores := false
 	for _, dvt := range restoredVM.Spec.DataVolumeTemplates {
 		dv, err := t.controller.getDV(restoredVM.Namespace, dvt.Name)
 		if err != nil {
@@ -670,6 +671,8 @@ func (t *vmRestoreTarget) reconcileDataVolumes(restoredVM *kubevirtv1.VirtualMac
 			return false, err
 		}
 		createdDV = createdDV || created
+
+		updatedRestores = updatedRestores || t.updateRestoreDataVolumeName(restoredVM, dvt.Name)
 	}
 
 	if t.DoesTargetVMExist() {
@@ -681,7 +684,28 @@ func (t *vmRestoreTarget) reconcileDataVolumes(restoredVM *kubevirtv1.VirtualMac
 		}
 	}
 
-	return createdDV || waitingDV, nil
+	return createdDV || waitingDV || updatedRestores, nil
+}
+
+func (t *vmRestoreTarget) updateRestoreDataVolumeName(restoredVM *kubevirtv1.VirtualMachine, dvName string) bool {
+	updatedRestores := false
+	for _, v := range restoredVM.Spec.Template.Spec.Volumes {
+		if v.DataVolume == nil || v.DataVolume.Name != dvName {
+			continue
+		}
+		for k := range t.vmRestore.Status.Restores {
+			vr := &t.vmRestore.Status.Restores[k]
+			if vr.VolumeName == v.Name {
+				if vr.DataVolumeName != nil && *vr.DataVolumeName == dvName {
+					break
+				}
+				vr.DataVolumeName = &dvName
+				updatedRestores = true
+				break
+			}
+		}
+	}
+	return updatedRestores
 }
 
 func (t *vmRestoreTarget) getControllerRevision(namespace, name string) (*appsv1.ControllerRevision, error) {
@@ -824,19 +848,6 @@ func (t *vmRestoreTarget) createDataVolume(restoredVM *kubevirtv1.VirtualMachine
 	if _, err = t.controller.Client.CdiClient().CdiV1beta1().DataVolumes(restoredVM.Namespace).Create(context.Background(), newDataVolume, metav1.CreateOptions{}); err != nil {
 		t.controller.Recorder.Eventf(t.vm, corev1.EventTypeWarning, restoreDataVolumeCreateErrorEvent, "Error creating restore DataVolume %s: %v", newDataVolume.Name, err)
 		return false, fmt.Errorf("Failed to create restore DataVolume: %v", err)
-	}
-	// Update restore DataVolumeName
-	for _, v := range restoredVM.Spec.Template.Spec.Volumes {
-		if v.DataVolume == nil || v.DataVolume.Name != dvt.Name {
-			continue
-		}
-		for k := range t.vmRestore.Status.Restores {
-			vr := &t.vmRestore.Status.Restores[k]
-			if vr.VolumeName == v.Name {
-				vr.DataVolumeName = &dvt.Name
-				break
-			}
-		}
 	}
 
 	return true, nil
