@@ -4353,11 +4353,10 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-client-0__10.10.0-4.el9.x86_64",
-    sha256 = "76f8d8c901a55a811126cff2c01b97fd6b3a9d29adfa3cd10dfee9ca5f4005c4",
+    name = "libvirt-client-0__10.10.0-6.el9.x86_64",
+    sha256 = "56af819f8005057cdf7d1e7375cab0512826947d5f9a421f50c815ac44061e53",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-client-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/76f8d8c901a55a811126cff2c01b97fd6b3a9d29adfa3cd10dfee9ca5f4005c4",
+        "http://172.17.0.2:80/x86_64/libvirt-client-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
@@ -4380,11 +4379,10 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-daemon-common-0__10.10.0-4.el9.x86_64",
-    sha256 = "5b852992dd3eb74ae710d48118869937d6a3a22f5ad21a0d8f92f741a3f80099",
+    name = "libvirt-daemon-common-0__10.10.0-6.el9.x86_64",
+    sha256 = "02ee4fcdead73482a4d0c1c8abcf2c33208bf4b0d303d76f6ec1a0fd911f8603",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-daemon-common-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/5b852992dd3eb74ae710d48118869937d6a3a22f5ad21a0d8f92f741a3f80099",
+        "http://172.17.0.2:80/x86_64/libvirt-daemon-common-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
@@ -4407,29 +4405,26 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-daemon-driver-qemu-0__10.10.0-4.el9.x86_64",
-    sha256 = "924bc92584bbf60a57fb10142df867e884c92240b9a4a22e96e56cce9080ea4e",
+    name = "libvirt-daemon-driver-qemu-0__10.10.0-6.el9.x86_64",
+    sha256 = "935a0f156912274ca5ab7a4dc07751dd7d3d0d41cf2bcd8d3453159758bdbb94",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-daemon-driver-qemu-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/924bc92584bbf60a57fb10142df867e884c92240b9a4a22e96e56cce9080ea4e",
+        "http://172.17.0.2:80/x86_64/libvirt-daemon-driver-qemu-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
 rpm(
-    name = "libvirt-daemon-driver-secret-0__10.10.0-4.el9.x86_64",
-    sha256 = "07abf130cdb1dba50049eb0c185c760d3916a66b65192ab16cd1dedccabf68a8",
+    name = "libvirt-daemon-driver-secret-0__10.10.0-6.el9.x86_64",
+    sha256 = "6da0b67b48d8d9b046c2229cd763321ff9d66958af6e896a3ff21c3a4274fd0c",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-daemon-driver-secret-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/07abf130cdb1dba50049eb0c185c760d3916a66b65192ab16cd1dedccabf68a8",
+        "http://172.17.0.2:80/x86_64/libvirt-daemon-driver-secret-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
 rpm(
-    name = "libvirt-daemon-driver-storage-core-0__10.10.0-4.el9.x86_64",
-    sha256 = "ba2e7815699819bf535db60813d1cee1b91e3144d8f30d3a41d8e4c10f455205",
+    name = "libvirt-daemon-driver-storage-core-0__10.10.0-6.el9.x86_64",
+    sha256 = "c75583fc34bfb21cf60e7f65c14a75e467f94a34e9f25b8829d947a020250835",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-daemon-driver-storage-core-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/ba2e7815699819bf535db60813d1cee1b91e3144d8f30d3a41d8e4c10f455205",
+        "http://172.17.0.2:80/x86_64/libvirt-daemon-driver-storage-core-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
@@ -4452,11 +4447,10 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-daemon-log-0__10.10.0-4.el9.x86_64",
-    sha256 = "a6242f1b0f6cc901001abe47c4131511013c8cff14741a826f397b9d4001b917",
+    name = "libvirt-daemon-log-0__10.10.0-6.el9.x86_64",
+    sha256 = "fedb5297dac6332c6a4ed00d2708537a72723c1a76a2697695ac5e8dee29431a",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-daemon-log-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/a6242f1b0f6cc901001abe47c4131511013c8cff14741a826f397b9d4001b917",
+        "http://172.17.0.2:80/x86_64/libvirt-daemon-log-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
@@ -4479,11 +4473,10 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-devel-0__10.10.0-4.el9.x86_64",
-    sha256 = "f491a0b9263207eb292eb2c8f6e12340ddb52504610902bc6153d0fd13304d1f",
+    name = "libvirt-devel-0__10.10.0-6.el9.x86_64",
+    sha256 = "f3cc2d9ea6dde032c81105bf18ac8a0ef6ab31bdbdeea9378e30017700dfcfbe",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/libvirt-devel-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/f491a0b9263207eb292eb2c8f6e12340ddb52504610902bc6153d0fd13304d1f",
+        "http://172.17.0.2:80/x86_64/libvirt-devel-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 
@@ -4506,11 +4499,10 @@ rpm(
 )
 
 rpm(
-    name = "libvirt-libs-0__10.10.0-4.el9.x86_64",
-    sha256 = "effb62813dcabb41f254cb447b039c66110e5dcca05f11ebabfe29138c1f5f71",
+    name = "libvirt-libs-0__10.10.0-6.el9.x86_64",
+    sha256 = "f58c2f237873e663ec4b8dbc27318dc4899fdb884ad6ace86a38976110cf9c48",
     urls = [
-        "http://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/libvirt-libs-10.10.0-4.el9.x86_64.rpm",
-        "https://storage.googleapis.com/builddeps/effb62813dcabb41f254cb447b039c66110e5dcca05f11ebabfe29138c1f5f71",
+        "http://172.17.0.2:80/x86_64/libvirt-libs-10.10.0-6.el9.x86_64.rpm",
     ],
 )
 

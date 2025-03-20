@@ -1,0 +1,39 @@
+$ docker volume create rpms
+
+$ docker run --rm -it -v rpms:/rpms quay.io/centos/centos:stream9
+
+<inside the container>
+
+$ dnf install -y wget createrepo
+
+$ mkdir /rpms/x86_64/
+$ cd /rpms/x86_64/
+
+
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-client-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-daemon-common-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-daemon-driver-qemu-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-daemon-driver-secret-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-daemon-driver-storage-core-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-daemon-log-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-devel-10.10.0-6.el10.x86_64.rpm
+wget https://kojihub.stream.centos.org/kojifiles/packages/libvirt/10.10.0/6.el10/x86_64/libvirt-libs-10.10.0-6.el10.x86_64.rpm
+
+$ createrepo -v /rpms/x86_64/
+
+<exit the container>
+
+$ docker run -dit --name rpms-http-server -p 80 -v rpms:/usr/local/apache2/htdocs/ httpd:latest
+
+$ docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' rpms-http-server
+172.17.0.2
+
+$ cat custom-repo.yaml 
+repositories:
+- arch: x86_64
+  baseurl: http://172.17.0.2:80/x86_64/ # The IP corresponding to the rpms-http-server container
+  name: custom-build
+  gpgcheck: 0
+  repo_gpgcheck: 0
+
+$ make CUSTOM_REPO=custom-repo.yaml LIBVIRT_VERSION=0:10.10.0-1.el9 SINGLE_ARCH=x86_64 rpm-deps
