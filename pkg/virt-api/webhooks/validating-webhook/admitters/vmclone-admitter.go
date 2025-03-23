@@ -385,10 +385,11 @@ func validateCloneVolumeSnapshotSupportVM(vm *v1.VirtualMachine, sourceField *k8
 		}
 	}
 
-	if backendstorage.IsBackendStorageNeededForVM(vm) {
+	if backendstorage.HasPersistentTPMDevice(&vm.Spec.Template.Spec) ||
+		backendstorage.HasPersistentEFI(&vm.Spec.Template.Spec) {
 		result = append(result, metav1.StatusCause{
 			Type:    metav1.CauseTypeFieldValueInvalid,
-			Message: "Virtual Machine requires backend storage, operation not supported",
+			Message: "Virtual Machine has TPM or EFI, operation not supported",
 			Field:   sourceField.String(),
 		})
 	}

@@ -19244,6 +19244,13 @@ func schema_kubevirtio_api_core_v1_Disk(ref common.ReferenceCallback) common.Ope
 							Format:      "",
 						},
 					},
+					"changedBlockTracking": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChangedBlockTracking indicates this disk should have CBT option Defaults to false.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"name"},
 			},

@@ -13408,6 +13408,10 @@
       "description": "Attach a volume as a cdrom to the vmi.",
       "$ref": "#/definitions/v1.CDRomTarget"
      },
+     "changedBlockTracking": {
+      "description": "ChangedBlockTracking indicates this disk should have CBT option Defaults to false.",
+      "type": "boolean"
+     },
      "dedicatedIOThread": {
       "description": "dedicatedIOThread indicates this disk should have an exclusive IO Thread. Enabling this implies useIOThreads = true. Defaults to false.",
       "type": "boolean"

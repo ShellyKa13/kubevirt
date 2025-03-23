@@ -130,6 +130,15 @@ func CurrentPVCName(vmi *corev1.VirtualMachineInstance) string {
 	return ""
 }
 
+func HasDisksWithCBT(vmiSpec *corev1.VirtualMachineInstanceSpec) bool {
+	for _, disk := range vmiSpec.Domain.Devices.Disks {
+		if disk.ChangedBlockTracking != nil && *disk.ChangedBlockTracking {
+			return true
+		}
+	}
+	return false
+}
+
 func HasPersistentTPMDevice(vmiSpec *corev1.VirtualMachineInstanceSpec) bool {
 	return vmiSpec.Domain.Devices.TPM != nil &&
 		vmiSpec.Domain.Devices.TPM.Persistent != nil &&
@@ -145,14 +154,14 @@ func HasPersistentEFI(vmiSpec *corev1.VirtualMachineInstanceSpec) bool {
 }
 
 func IsBackendStorageNeededForVMI(vmiSpec *corev1.VirtualMachineInstanceSpec) bool {
-	return HasPersistentTPMDevice(vmiSpec) || HasPersistentEFI(vmiSpec)
+	return HasPersistentTPMDevice(vmiSpec) || HasPersistentEFI(vmiSpec) || HasDisksWithCBT(vmiSpec)
 }
 
 func IsBackendStorageNeededForVM(vm *corev1.VirtualMachine) bool {
 	if vm.Spec.Template == nil {
 		return false
 	}
-	return HasPersistentTPMDevice(&vm.Spec.Template.Spec) || HasPersistentEFI(&vm.Spec.Template.Spec)
+	return HasPersistentTPMDevice(&vm.Spec.Template.Spec) || HasPersistentEFI(&vm.Spec.Template.Spec) || HasDisksWithCBT(&vm.Spec.Template.Spec)
 }
 
 func MigrationHandoff(client kubecli.KubevirtClient, pvcStore cache.Store, migration *corev1.VirtualMachineInstanceMigration) error {

@@ -306,7 +306,8 @@
                   }
                 },
                 "shareable": true,
-                "errorPolicy": "errorPolicyValue"
+                "errorPolicy": "errorPolicyValue",
+                "changedBlockTracking": true
               }
             ],
             "watchdog": {
@@ -1196,7 +1197,8 @@
               }
             },
             "shareable": true,
-            "errorPolicy": "errorPolicyValue"
+            "errorPolicy": "errorPolicyValue",
+            "changedBlockTracking": true
           },
           "volumeSource": {
             "persistentVolumeClaim": {

@@ -6065,6 +6065,11 @@ var CRDsValidation map[string]string = map[string]string{
                                       Defaults to closed.
                                     type: string
                                 type: object
+                              changedBlockTracking:
+                                description: |-
+                                  ChangedBlockTracking indicates this disk should have CBT option
+                                  Defaults to false.
+                                type: boolean
                               dedicatedIOThread:
                                 description: |-
                                   dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -8221,6 +8226,11 @@ var CRDsValidation map[string]string = map[string]string{
                               Defaults to closed.
                             type: string
                         type: object
+                      changedBlockTracking:
+                        description: |-
+                          ChangedBlockTracking indicates this disk should have CBT option
+                          Defaults to false.
+                        type: boolean
                       dedicatedIOThread:
                         description: |-
                           dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -11292,6 +11302,11 @@ var CRDsValidation map[string]string = map[string]string{
                               Defaults to closed.
                             type: string
                         type: object
+                      changedBlockTracking:
+                        description: |-
+                          ChangedBlockTracking indicates this disk should have CBT option
+                          Defaults to false.
+                        type: boolean
                       dedicatedIOThread:
                         description: |-
                           dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -14496,6 +14511,11 @@ var CRDsValidation map[string]string = map[string]string{
                               Defaults to closed.
                             type: string
                         type: object
+                      changedBlockTracking:
+                        description: |-
+                          ChangedBlockTracking indicates this disk should have CBT option
+                          Defaults to false.
+                        type: boolean
                       dedicatedIOThread:
                         description: |-
                           dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -16911,6 +16931,11 @@ var CRDsValidation map[string]string = map[string]string{
                                       Defaults to closed.
                                     type: string
                                 type: object
+                              changedBlockTracking:
+                                description: |-
+                                  ChangedBlockTracking indicates this disk should have CBT option
+                                  Defaults to false.
+                                type: boolean
                               dedicatedIOThread:
                                 description: |-
                                   dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -21396,6 +21421,11 @@ var CRDsValidation map[string]string = map[string]string{
                                               Defaults to closed.
                                             type: string
                                         type: object
+                                      changedBlockTracking:
+                                        description: |-
+                                          ChangedBlockTracking indicates this disk should have CBT option
+                                          Defaults to false.
+                                        type: boolean
                                       dedicatedIOThread:
                                         description: |-
                                           dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -26579,6 +26609,11 @@ var CRDsValidation map[string]string = map[string]string{
                                                   Defaults to closed.
                                                 type: string
                                             type: object
+                                          changedBlockTracking:
+                                            description: |-
+                                              ChangedBlockTracking indicates this disk should have CBT option
+                                              Defaults to false.
+                                            type: boolean
                                           dedicatedIOThread:
                                             description: |-
                                               dedicatedIOThread indicates this disk should have an exclusive IO Thread.
@@ -28802,6 +28837,11 @@ var CRDsValidation map[string]string = map[string]string{
                                           Defaults to closed.
                                         type: string
                                     type: object
+                                  changedBlockTracking:
+                                    description: |-
+                                      ChangedBlockTracking indicates this disk should have CBT option
+                                      Defaults to false.
+                                    type: boolean
                                   dedicatedIOThread:
                                     description: |-
                                       dedicatedIOThread indicates this disk should have an exclusive IO Thread.

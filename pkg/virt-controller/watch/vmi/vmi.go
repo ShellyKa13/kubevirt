@@ -1101,6 +1101,13 @@ func (c *Controller) handleBackendStorage(vmi *virtv1.VirtualMachineInstance) (s
 	}
 
 	if !backendstorage.IsBackendStorageNeededForVMI(&vmi.Spec) {
+		pvc := backendstorage.PVCForVMI(c.pvcIndexer, vmi)
+		if pvc != nil {
+			err = c.clientset.CoreV1().PersistentVolumeClaims(vmi.Namespace).Delete(context.Background(), pvc.Name, v1.DeleteOptions{})
+			if err != nil {
+				return "", common.NewSyncError(err, "Failed deleteing backend storage")
+			}
+		}
 		return "", nil
 	}
 

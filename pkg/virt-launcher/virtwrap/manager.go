@@ -26,6 +26,7 @@ package virtwrap
 */
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/xml"
@@ -1113,6 +1114,12 @@ func (l *LibvirtDomainManager) SyncVMI(vmi *v1.VirtualMachineInstance, allowEmul
 		return nil, err
 	}
 
+	err = l.createQCOW2Overlay(vmi, c)
+	if err != nil {
+		logger.Reason(err).Error("failed to createQCOW2Overlay")
+		return nil, err
+	}
+
 	if err := converter.Convert_v1_VirtualMachineInstance_To_api_Domain(vmi, domain, c); err != nil {
 		logger.Error("Conversion failed.")
 		return nil, err
@@ -1165,6 +1172,109 @@ func (l *LibvirtDomainManager) SyncVMI(vmi *v1.VirtualMachineInstance, allowEmul
 
 	// TODO: check if VirtualMachineInstance Spec and Domain Spec are equal or if we have to sync
 	return oldSpec, nil
+}
+
+func (l *LibvirtDomainManager) createQCOW2Overlay(vmi *v1.VirtualMachineInstance, c *converter.ConverterContext) error {
+	logger := log.Log.Object(vmi)
+	applyCBTMap := make(map[string]string)
+	cbtPath := services.PathForCBT(vmi)
+
+	for _, disk := range vmi.Spec.Domain.Devices.Disks {
+		// create overlay for every vm disk that is marked with changedBlockTracking
+		if disk.ChangedBlockTracking == nil || !*disk.ChangedBlockTracking {
+			continue
+		}
+		diskName := disk.Name
+		var diskPath string
+		if c.IsBlockPVC[diskName] || c.IsBlockDV[diskName] {
+			diskPath = converter.GetBlockDeviceVolumePath(diskName)
+		} else {
+			diskPath = converter.GetFilesystemVolumePath(diskName)
+		}
+
+		overlayPath := filepath.Join(cbtPath, diskName+".qcow2")
+		logger.V(1).Infof("QCOW2 overlay path is %s", overlayPath)
+
+		// If the overlay already exists, continue
+		if _, err := os.Stat(overlayPath); err == nil {
+			logger.V(1).Infof("QCOW2 overlay %s already exists", overlayPath)
+			applyCBTMap[diskName] = overlayPath
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			logger.Reason(err).Errorf("Error checking QCOW2 overlay %s existence:", overlayPath)
+			continue
+		}
+
+		// Create the overlay file
+		_, err := os.Create(overlayPath)
+		if err != nil {
+			logger.Reason(err).Errorf("Error creating file QCOW2 overlay %s", overlayPath)
+			return err
+		}
+
+		// Ensure the file gets deleted if any error occurs later
+		defer func(path string) {
+			if err != nil {
+				// If there's any error, remove the overlay file
+				logger.Errorf("Deleting QCOW2 overlay %s due to failure", path)
+				os.Remove(path)
+			}
+		}(overlayPath)
+
+		info, err := converter.GetImageInfo(diskPath)
+		if err != nil {
+			return fmt.Errorf("failed to get image info for raw disk %q", diskName)
+		}
+		overlaySize := info.VirtualSize
+
+		// QMP capabilities and blockdev creation commands
+		qmpCapabilities := `{"execute": "qmp_capabilities"}`
+		blockdevCreate := fmt.Sprintf(`{"execute": "blockdev-create", "arguments": {"job-id": "create", "options": {"driver": "qcow2", "file": "file", "data-file": "data-file", "data-file-raw": true, "size": %d}}}`, overlaySize)
+		jobDismiss := `{"execute": "job-dismiss", "arguments": {"id": "create"}}`
+		quit := `{"execute": "quit"}`
+
+		// Prepare the command arguments
+		args := append([]string{},
+			"--chardev", "stdio,id=stdio", "--monitor", "stdio",
+			"--blockdev", fmt.Sprintf("file,node-name=file,filename=%s", overlayPath),
+			"--blockdev", fmt.Sprintf("file,node-name=data-file,filename=%s", diskPath))
+
+		logger.V(1).Infof("QCOW2 overlay execute %v", args)
+
+		// Create context with timeout to prevent hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // 30 seconds timeout
+		defer cancel()
+
+		// Create the command with the arguments
+		cmd := exec.CommandContext(ctx, "qemu-storage-daemon", args...)
+
+		// Combine all input commands into a single input string
+		input := fmt.Sprintf("%s\n%s\n%s\n%s\n", qmpCapabilities, blockdevCreate, jobDismiss, quit)
+
+		// Set the command's standard input to the combined input buffer
+		cmd.Stdin = bytes.NewBufferString(input)
+
+		// Capture the output of the command (both stdout and stderr)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			logger.Reason(err).Errorf("Failed creating QCOW2 overlay %s, output: %s", overlayPath, string(output))
+			return fmt.Errorf("failed to create QCOW2 overlay %s: %v, output: %s", overlayPath, err, output)
+		}
+
+		logger.V(1).Infof("QCOW2 overlay %s created successfully", overlayPath)
+
+		applyCBTMap[diskName] = overlayPath
+
+		// Get the image info for the newly created overlay
+		diskInfo, err := converter.GetImageInfo(overlayPath)
+		if err != nil {
+			logger.Reason(err).Errorf("Failed getting info for QCOW2 overlay %s", overlayPath)
+			return err
+		}
+		logger.V(1).Infof("QCOW2 overlay disk info:\n%+v", diskInfo)
+	}
+	c.ApplyCBT = applyCBTMap
+	return nil
 }
 
 func (l *LibvirtDomainManager) syncDiskHotplug(

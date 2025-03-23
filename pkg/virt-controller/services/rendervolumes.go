@@ -367,6 +367,15 @@ func PathForNVram(vmi *v1.VirtualMachineInstance) string {
 	return nvramPath
 }
 
+func PathForCBT(vmi *v1.VirtualMachineInstance) string {
+	cbtPath := "/var/lib/libvirt/qemu/cbt"
+	if util.IsNonRootVMI(vmi) {
+		cbtPath = filepath.Join(util.VirtPrivateDir, "libvirt", "qemu", "cbt")
+	}
+
+	return cbtPath
+}
+
 func withBackendStorage(vmi *v1.VirtualMachineInstance, backendStoragePVCName string) VolumeRendererOption {
 	return func(renderer *VolumeRenderer) error {
 		if !backendstorage.IsBackendStorageNeededForVMI(&vmi.Spec) {
@@ -425,6 +434,15 @@ func withBackendStorage(vmi *v1.VirtualMachineInstance, backendStoragePVCName st
 				ReadOnly:  false,
 				MountPath: PathForNVram(vmi),
 				SubPath:   "nvram",
+			})
+		}
+
+		if backendstorage.HasDisksWithCBT(&vmi.Spec) {
+			renderer.podVolumeMounts = append(renderer.podVolumeMounts, k8sv1.VolumeMount{
+				Name:      volumeName,
+				ReadOnly:  false,
+				MountPath: PathForCBT(vmi),
+				SubPath:   "cbt",
 			})
 		}
 

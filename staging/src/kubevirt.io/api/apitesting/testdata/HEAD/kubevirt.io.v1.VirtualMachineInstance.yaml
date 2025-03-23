@@ -253,6 +253,7 @@ spec:
           bus: busValue
           readonly: true
           tray: trayValue
+        changedBlockTracking: true
         dedicatedIOThread: true
         disk:
           bus: busValue
