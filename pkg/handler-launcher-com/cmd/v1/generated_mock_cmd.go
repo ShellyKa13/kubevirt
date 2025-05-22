@@ -41,6 +41,26 @@ func (m *MockCmdClient) EXPECT() *MockCmdClientMockRecorder {
 	return m.recorder
 }
 
+// BackupBegin mocks base method.
+func (m *MockCmdClient) BackupBegin(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*Response, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "BackupBegin", varargs...)
+	ret0, _ := ret[0].(*Response)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BackupBegin indicates an expected call of BackupBegin.
+func (mr *MockCmdClientMockRecorder) BackupBegin(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackupBegin", reflect.TypeOf((*MockCmdClient)(nil).BackupBegin), varargs...)
+}
+
 // CancelVirtualMachineMigration mocks base method.
 func (m *MockCmdClient) CancelVirtualMachineMigration(ctx context.Context, in *VMIRequest, opts ...grpc.CallOption) (*Response, error) {
 	m.ctrl.T.Helper()
@@ -703,6 +723,21 @@ func NewMockCmdServer(ctrl *gomock.Controller) *MockCmdServer {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockCmdServer) EXPECT() *MockCmdServerMockRecorder {
 	return m.recorder
+}
+
+// BackupBegin mocks base method.
+func (m *MockCmdServer) BackupBegin(arg0 context.Context, arg1 *BackupRequest) (*Response, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BackupBegin", arg0, arg1)
+	ret0, _ := ret[0].(*Response)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BackupBegin indicates an expected call of BackupBegin.
+func (mr *MockCmdServerMockRecorder) BackupBegin(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackupBegin", reflect.TypeOf((*MockCmdServer)(nil).BackupBegin), arg0, arg1)
 }
 
 // CancelVirtualMachineMigration mocks base method.
