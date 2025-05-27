@@ -3751,12 +3751,12 @@ var _ = Describe("Manager helper functions", func() {
 })
 
 var _ = Describe("Changed Block Tracking", func() {
-	Context("needToCreateQCOW2Overlay", func() {
+	Context("shouldCreateQCOW2Overlay", func() {
 		DescribeTable("should return correct value based on ChangedBlockTracking state", func(state v1.ChangedBlockTrackingState, expected bool) {
 			vmi := newVMI(testNamespace, testVmName)
 			cbt.SetCBTState(&vmi.Status.ChangedBlockTracking, state)
 
-			result := needToCreateQCOW2Overlay(vmi)
+			result := shouldCreateQCOW2Overlay(vmi)
 			Expect(result).To(Equal(expected))
 		},
 			Entry("when state is Initializing", v1.ChangedBlockTrackingInitializing, true),

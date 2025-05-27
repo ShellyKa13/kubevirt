@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"kubevirt.io/kubevirt/pkg/pointer"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/metadata"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap"
 
@@ -61,9 +62,10 @@ type Notifier struct {
 }
 
 type libvirtEvent struct {
-	Domain     string
-	Event      *libvirt.DomainEventLifecycle
-	AgentEvent *libvirt.DomainEventAgentLifecycle
+	Domain            string
+	Event             *libvirt.DomainEventLifecycle
+	AgentEvent        *libvirt.DomainEventAgentLifecycle
+	JobCompletedEvent *libvirt.DomainEventJobCompleted
 }
 
 func NewNotifier(virtShareDir string) *Notifier {
@@ -353,30 +355,11 @@ func (e *eventCaller) eventCallback(c cli.Connection, domain *api.Domain, libvir
 			updateEvents(event, domain, events)
 		}
 	default:
-		if libvirtEvent.Event != nil {
-			if libvirtEvent.Event.Event == libvirt.DOMAIN_EVENT_DEFINED && libvirt.DomainEventDefinedDetailType(libvirtEvent.Event.Detail) == libvirt.DOMAIN_EVENT_DEFINED_ADDED {
-				event := watch.Event{Type: watch.Added, Object: domain}
-				client.SendDomainEvent(event)
-				updateEvents(event, domain, events)
-			} else if libvirtEvent.Event.Event == libvirt.DOMAIN_EVENT_STARTED && libvirt.DomainEventStartedDetailType(libvirtEvent.Event.Detail) == libvirt.DOMAIN_EVENT_STARTED_MIGRATED {
-				event := watch.Event{Type: watch.Added, Object: domain}
-				client.SendDomainEvent(event)
-				updateEvents(event, domain, events)
-			} else if (libvirtEvent.Event.Event == libvirt.DOMAIN_EVENT_RESUMED && libvirt.DomainEventResumedDetailType(libvirtEvent.Event.Detail) == libvirt.DOMAIN_EVENT_RESUMED_MIGRATED) ||
-				(libvirtEvent.Event.Event == libvirt.DOMAIN_EVENT_SUSPENDED && libvirt.DomainEventSuspendedDetailType(libvirtEvent.Event.Detail) == libvirt.DOMAIN_EVENT_SUSPENDED_PAUSED) {
-				// This is a libvirt event that only the target can see, and it means that the migration has completed
-				// we just set the EndTimestamp here so that the source can finalize the migration.
-				// Usually this is performed by the source launcher/handler. However, in case of upgrade, this is not
-				// guaranteed as the cluster will have an updated virt-handler together with outdated launchers, this
-				// makes sure that migrations actually finish in those cases.
-				notifier := eventNotifier{
-					client: client,
-					domain: domain,
-					events: events,
-				}
-				monitor := virtwrap.NewTargetMigrationMonitor(c, events, vmi, domain, metadataCache, notifier)
-				monitor.StartMonitor()
-			}
+		switch {
+		case libvirtEvent.JobCompletedEvent != nil:
+			processJobCompletedEvent(c, client, domain, d, libvirtEvent.JobCompletedEvent, metadataCache, events)
+		case libvirtEvent.Event != nil:
+			processLifecycleEvent(client, domain, libvirtEvent.Event, metadataCache, events)
 		}
 		if interfaceStatus != nil {
 			domain.Status.Interfaces = interfaceStatus
@@ -552,6 +535,18 @@ func (n *Notifier) StartDomainNotifier(
 			log.Log.Infof(libvirtEventChannelFull)
 		}
 	}
+	domainEventJobCompletedCallback := func(c *libvirt.Connect, d *libvirt.Domain, event *libvirt.DomainEventJobCompleted) {
+		log.Log.Infof("Domain Job Completed event type %v received. Job operation: %v, succeeded: %t", event.Info.Type, event.Info.Operation, event.Info.JobSuccess)
+		name, err := d.GetName()
+		if err != nil {
+			log.Log.Reason(err).Info(cantDetermineLibvirtDomainName)
+		}
+		select {
+		case eventChan <- libvirtEvent{JobCompletedEvent: event, Domain: name}:
+		default:
+			log.Log.Infof(libvirtEventChannelFull)
+		}
+	}
 
 	err := domainConn.DomainEventLifecycleRegister(domainEventLifecycleCallback)
 	if err != nil {
@@ -572,6 +567,11 @@ func (n *Notifier) StartDomainNotifier(
 	err = domainConn.DomainEventMemoryDeviceSizeChangeRegister(domainEventMemoryDeviceSizeChange)
 	if err != nil {
 		log.Log.Reason(err).Errorf("failed to register memory device size change event callback with libvirt")
+		return err
+	}
+	err = domainConn.DomainEventJobCompletedRegister(domainEventJobCompletedCallback)
+	if err != nil {
+		log.Log.Reason(err).Errorf("failed to register event job completed callback with libvirt")
 		return err
 	}
 
@@ -664,4 +664,54 @@ func (n *Notifier) Close() {
 	defer n.connLock.Unlock()
 	n._close()
 
+}
+
+func processJobCompletedEvent(conn cli.Connection, client *Notifier, domain *api.Domain, d cli.VirDomain, jobCompletedevent *libvirt.DomainEventJobCompleted, metadataCache *metadata.Cache, events chan watch.Event) {
+	if jobCompletedevent.Info.Operation != libvirt.DOMAIN_JOB_OPERATION_BACKUP {
+		log.Log.V(3).Infof("Recieved a job completion event for operation %v", jobCompletedevent.Info.Operation)
+
+		return
+	}
+
+	virtwrap.HandleBackupJobCompletedEvent(d, jobCompletedevent, metadataCache)
+	if value, exists := metadataCache.Backup.Load(); exists {
+		domain.Spec.Metadata.KubeVirt.Backup = &value
+	}
+	event := watch.Event{Type: watch.Added, Object: domain}
+	client.SendDomainEvent(event)
+	updateEvents(event, domain, events)
+}
+
+func processLifecycleEvent(client *Notifier, domain *api.Domain, lifecycleEvent *libvirt.DomainEventLifecycle, metadataCache *metadata.Cache, events chan watch.Event) {
+	if lifecycleEvent.Event == libvirt.DOMAIN_EVENT_DEFINED && libvirt.DomainEventDefinedDetailType(lifecycleEvent.Detail) == libvirt.DOMAIN_EVENT_DEFINED_ADDED {
+		event := watch.Event{Type: watch.Added, Object: domain}
+		client.SendDomainEvent(event)
+		updateEvents(event, domain, events)
+	} else if lifecycleEvent.Event == libvirt.DOMAIN_EVENT_STARTED && libvirt.DomainEventStartedDetailType(lifecycleEvent.Detail) == libvirt.DOMAIN_EVENT_STARTED_MIGRATED {
+		event := watch.Event{Type: watch.Added, Object: domain}
+		client.SendDomainEvent(event)
+		updateEvents(event, domain, events)
+	} else if (lifecycleEvent.Event == libvirt.DOMAIN_EVENT_RESUMED && libvirt.DomainEventResumedDetailType(lifecycleEvent.Detail) == libvirt.DOMAIN_EVENT_RESUMED_MIGRATED) ||
+		(lifecycleEvent.Event == libvirt.DOMAIN_EVENT_SUSPENDED && libvirt.DomainEventSuspendedDetailType(lifecycleEvent.Detail) == libvirt.DOMAIN_EVENT_SUSPENDED_PAUSED) {
+		// This is a libvirt event that only the target can see, and it means that the migration has completed
+		// we just set the EndTimestamp here so that the source can finalize the migration.
+		// Usually this is performed by the source launcher/handler. However, in case of upgrade, this is not
+		// guaranteed as the cluster will have an updated virt-handler together with outdated launchers, this
+		// makes sure that migrations actually finish in those cases.
+		migrationMetadata, exists := metadataCache.Migration.Load()
+		if exists && migrationMetadata.EndTimestamp == nil {
+			metadataCache.Migration.WithSafeBlock(func(migrationMetadata *api.MigrationMetadata, _ bool) {
+				migrationMetadata.EndTimestamp = pointer.P(metav1.Now())
+			})
+		} else if !exists {
+			migrationMetadata := api.MigrationMetadata{
+				EndTimestamp: pointer.P(metav1.Now()),
+			}
+			metadataCache.Migration.Store(migrationMetadata)
+		}
+
+		event := watch.Event{Type: watch.Modified, Object: domain}
+		client.SendDomainEvent(event)
+		updateEvents(event, domain, events)
+	}
 }
