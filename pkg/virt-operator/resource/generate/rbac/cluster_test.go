@@ -105,6 +105,7 @@ var _ = Describe("Cluster role and cluster role bindings", func() {
 				Entry(fmt.Sprintf("update %s/%s", virtv1.SubresourceGroupName, apiVMInstancesSoftReboot), virtv1.SubresourceGroupName, apiVMInstancesSoftReboot, "update"),
 				Entry(fmt.Sprintf("update %s/%s", virtv1.SubresourceGroupName, apiVMInstancesSEVSetupSession), virtv1.SubresourceGroupName, apiVMInstancesSEVSetupSession, "update"),
 				Entry(fmt.Sprintf("update %s/%s", virtv1.SubresourceGroupName, apiVMInstancesSEVInjectLaunchSecret), virtv1.SubresourceGroupName, apiVMInstancesSEVInjectLaunchSecret, "update"),
+				Entry(fmt.Sprintf("update %s/%s", virtv1.SubresourceGroupName, apiVMInstancesBackup), virtv1.SubresourceGroupName, apiVMInstancesBackup, "update"),
 
 				Entry(fmt.Sprintf("get %s/%s", virtv1.SubresourceGroupName, apiVMExpandSpec), virtv1.SubresourceGroupName, apiVMExpandSpec, "get"),
 				Entry(fmt.Sprintf("get %s/%s", virtv1.SubresourceGroupName, apiVMPortForward), virtv1.SubresourceGroupName, apiVMPortForward, "get"),

@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/client-go/testing"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	v1 "kubevirt.io/api/core/v1"
 	kvcorev1 "kubevirt.io/client-go/kubevirt/typed/core/v1"
 	fake2 "kubevirt.io/client-go/testing"
@@ -165,4 +166,11 @@ func (c *fakeVirtualMachineInstances) ObjectGraph(ctx context.Context, name stri
 		Invokes(fake2.NewGetSubresourceAction(c.Resource(), c.Namespace(), "objectgraph", name, objectGraphOptions), nil)
 
 	return *obj.(*v1.ObjectGraphNode), err
+}
+
+func (c *fakeVirtualMachineInstances) Backup(ctx context.Context, name string, backupOptions *backupv1.BackupOptions) error {
+	_, err := c.Fake.
+		Invokes(fake2.NewPutSubresourceAction(c.Resource(), c.Namespace(), "backup", name, backupOptions), nil)
+
+	return err
 }
