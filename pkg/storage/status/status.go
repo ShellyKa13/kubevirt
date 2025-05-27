@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	exportv1 "kubevirt.io/api/export/v1beta1"
 	snapshotv1 "kubevirt.io/api/snapshot/v1beta1"
 	"kubevirt.io/client-go/kubecli"
@@ -203,6 +204,24 @@ func (v *VMRestoreStatusUpdater) UpdateStatus(vmRestore *snapshotv1.VirtualMachi
 
 func NewVMRestoreStatusUpdater(cli kubecli.KubevirtClient) *VMRestoreStatusUpdater {
 	return &VMRestoreStatusUpdater{
+		updater: updater{
+			lock:        sync.Mutex{},
+			subresource: true,
+			cli:         cli,
+		},
+	}
+}
+
+type BackupStatusUpdater struct {
+	updater
+}
+
+func (v *BackupStatusUpdater) UpdateStatus(backup *backupv1.VirtualMachineBackup) error {
+	return v.update(backup)
+}
+
+func NewBackupStatusUpdater(cli kubecli.KubevirtClient) *BackupStatusUpdater {
+	return &BackupStatusUpdater{
 		updater: updater{
 			lock:        sync.Mutex{},
 			subresource: true,

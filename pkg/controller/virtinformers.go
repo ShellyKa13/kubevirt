@@ -54,6 +54,7 @@ import (
 	apiregv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	aggregatorclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	"kubevirt.io/api/core"
 	kubev1 "kubevirt.io/api/core/v1"
 	exportv1 "kubevirt.io/api/export/v1beta1"
@@ -122,6 +123,9 @@ type KubeInformerFactory interface {
 
 	// Watches VirtualMachineInstanceMigration objects
 	VirtualMachineInstanceMigration() cache.SharedIndexInformer
+
+	// Watches VirtualMachineBackup objects
+	VirtualMachineBackup() cache.SharedIndexInformer
 
 	// Watches VirtualMachineExport objects
 	VirtualMachineExport() cache.SharedIndexInformer
@@ -573,6 +577,39 @@ func (f *kubeInformerFactory) VirtualMachine() cache.SharedIndexInformer {
 	return f.getInformer("vmInformer", func() cache.SharedIndexInformer {
 		lw := cache.NewListWatchFromClient(f.restClient, "virtualmachines", k8sv1.NamespaceAll, fields.Everything())
 		return cache.NewSharedIndexInformer(lw, &kubev1.VirtualMachine{}, f.defaultResync, GetVirtualMachineInformerIndexers())
+	})
+}
+
+func getBackupSource(backup *backupv1.VirtualMachineBackup) *k8sv1.TypedLocalObjectReference {
+	if backup.Spec.Source != nil {
+		return backup.Spec.Source
+	}
+	return &backup.Spec.BackupTracker.Spec.Source
+}
+func GetVirtualMachineBackupInformerIndexers() cache.Indexers {
+	return cache.Indexers{
+		"vmi": func(obj interface{}) ([]string, error) {
+			backup, ok := obj.(*backupv1.VirtualMachineBackup)
+			if !ok {
+				return nil, unexpectedObjectError
+			}
+
+			source := getBackupSource(backup)
+			if source.APIGroup != nil &&
+				*source.APIGroup == core.GroupName &&
+				source.Kind == "VirtualMachine" {
+				return []string{fmt.Sprintf("%s/%s", backup.Namespace, source.Name)}, nil
+			}
+
+			return nil, nil
+		},
+	}
+}
+
+func (f *kubeInformerFactory) VirtualMachineBackup() cache.SharedIndexInformer {
+	return f.getInformer("vmBackupInformer", func() cache.SharedIndexInformer {
+		lw := cache.NewListWatchFromClient(f.clientSet.GeneratedKubeVirtClient().BackupV1alpha1().RESTClient(), "virtualmachinebackups", k8sv1.NamespaceAll, fields.Everything())
+		return cache.NewSharedIndexInformer(lw, &backupv1.VirtualMachineBackup{}, f.defaultResync, GetVirtualMachineBackupInformerIndexers())
 	})
 }
 

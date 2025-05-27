@@ -6,6 +6,7 @@ go_library(
     importpath = "kubevirt.io/kubevirt/pkg/storage/status",
     visibility = ["//visibility:public"],
     deps = [
+        "//staging/src/kubevirt.io/api/backup/v1alpha1:go_default_library",
         "//staging/src/kubevirt.io/api/export/v1beta1:go_default_library",
         "//staging/src/kubevirt.io/api/snapshot/v1beta1:go_default_library",
         "//staging/src/kubevirt.io/client-go/kubecli:go_default_library",
