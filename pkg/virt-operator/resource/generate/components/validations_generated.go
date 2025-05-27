@@ -8736,6 +8736,260 @@ var CRDsValidation map[string]string = map[string]string{
   - spec
   type: object
 `,
+	"virtualmachinebackup": `openAPIV3Schema:
+  description: VirtualMachineBackup defines the operation of backing up a VM
+  properties:
+    apiVersion:
+      description: |-
+        APIVersion defines the versioned schema of this representation of an object.
+        Servers should convert recognized schemas to the latest internal value, and
+        may reject unrecognized values.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+      type: string
+    kind:
+      description: |-
+        Kind is a string value representing the REST resource this object represents.
+        Servers may infer this from the endpoint the client submits requests to.
+        Cannot be updated.
+        In CamelCase.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+      type: string
+    metadata:
+      type: object
+    spec:
+      description: VirtualMachineBackupSpec is the spec for a VirtualMachineBackup
+        resource
+      properties:
+        backupTracker:
+          description: |-
+            BackupTracker used as a reference for the backup source and latest checkpoint
+            which will use as a base for an incremental backup.
+            The latest Checkpoint of the backupTracker will be updated with the checkpoint of the backup.
+            If not specified, Source must be provided and a full backup will be preformed.
+          properties:
+            apiVersion:
+              description: |-
+                APIVersion defines the versioned schema of this representation of an object.
+                Servers should convert recognized schemas to the latest internal value, and
+                may reject unrecognized values.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+              type: string
+            kind:
+              description: |-
+                Kind is a string value representing the REST resource this object represents.
+                Servers may infer this from the endpoint the client submits requests to.
+                Cannot be updated.
+                In CamelCase.
+                More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: VirtualMachineBackupTrackerSpec is the spec for a VirtualMachineBackupTracker
+                resource
+              properties:
+                source:
+                  description: Source specifies the VM that this backupTracker is
+                    associated with
+                  properties:
+                    apiGroup:
+                      description: |-
+                        APIGroup is the group for the resource being referenced.
+                        If APIGroup is not specified, the specified Kind must be in the core API group.
+                        For any other third-party types, APIGroup is required.
+                      type: string
+                    kind:
+                      description: Kind is the type of resource being referenced
+                      type: string
+                    name:
+                      description: Name is the name of resource being referenced
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                  x-kubernetes-map-type: atomic
+              required:
+              - source
+              type: object
+            status:
+              description: VirtualMachineBackupTrackerStatus is the status for a VirtualMachineBackupTracker
+                resource
+              properties:
+                latestCheckpoint:
+                  description: |-
+                    LatestCheckpoint is the metadata of the checkpoint of
+                    the latest preformed backup
+                  properties:
+                    creationTime:
+                      format: date-time
+                      type: string
+                    disks:
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      type: string
+                  type: object
+              type: object
+          required:
+          - spec
+          type: object
+        forceFullBackup:
+          description: ForceFullBackup indicates that a full backup is desired
+          type: boolean
+        mode:
+          description: Mode specifies the way the backup output will be recieved
+          type: string
+        pvcName:
+          description: |-
+            PvcName required in push mode. Specifies the name of the PVC
+            where the backup output will be stored
+          type: string
+        skipQuiesce:
+          description: SkipQuiesce indicates whether the VM's filesystem shoule not
+            be quiesced before the backup
+          type: boolean
+        source:
+          description: |-
+            Source specifies the VM to backup
+            If not provided, a reference to a VirtualMachineBackupTracker must be specified instead
+          properties:
+            apiGroup:
+              description: |-
+                APIGroup is the group for the resource being referenced.
+                If APIGroup is not specified, the specified Kind must be in the core API group.
+                For any other third-party types, APIGroup is required.
+              type: string
+            kind:
+              description: Kind is the type of resource being referenced
+              type: string
+            name:
+              description: Name is the name of resource being referenced
+              type: string
+          required:
+          - kind
+          - name
+          type: object
+          x-kubernetes-map-type: atomic
+      type: object
+    status:
+      description: VirtualMachineBackupStatus is the status for a VirtualMachineBackup
+        resource
+      properties:
+        checkpointName:
+          description: CheckpointName the name of the checkpoint created for the current
+            backup
+          type: string
+        conditions:
+          items:
+            description: Condition defines conditions
+            properties:
+              lastProbeTime:
+                format: date-time
+                nullable: true
+                type: string
+              lastTransitionTime:
+                format: date-time
+                nullable: true
+                type: string
+              message:
+                type: string
+              reason:
+                type: string
+              status:
+                type: string
+              type:
+                description: ConditionType is the const type for Conditions
+                type: string
+            required:
+            - status
+            - type
+            type: object
+          type: array
+          x-kubernetes-list-type: atomic
+        type:
+          description: Type indicates if the backup was full or incremental
+          type: string
+      type: object
+  required:
+  - spec
+  type: object
+`,
+	"virtualmachinebackuptracker": `openAPIV3Schema:
+  description: |-
+    VirtualMachineBackupTracker defines the way to track the latest checkpoint of
+    a backup solution for a vm
+  properties:
+    apiVersion:
+      description: |-
+        APIVersion defines the versioned schema of this representation of an object.
+        Servers should convert recognized schemas to the latest internal value, and
+        may reject unrecognized values.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+      type: string
+    kind:
+      description: |-
+        Kind is a string value representing the REST resource this object represents.
+        Servers may infer this from the endpoint the client submits requests to.
+        Cannot be updated.
+        In CamelCase.
+        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+      type: string
+    metadata:
+      type: object
+    spec:
+      description: VirtualMachineBackupTrackerSpec is the spec for a VirtualMachineBackupTracker
+        resource
+      properties:
+        source:
+          description: Source specifies the VM that this backupTracker is associated
+            with
+          properties:
+            apiGroup:
+              description: |-
+                APIGroup is the group for the resource being referenced.
+                If APIGroup is not specified, the specified Kind must be in the core API group.
+                For any other third-party types, APIGroup is required.
+              type: string
+            kind:
+              description: Kind is the type of resource being referenced
+              type: string
+            name:
+              description: Name is the name of resource being referenced
+              type: string
+          required:
+          - kind
+          - name
+          type: object
+          x-kubernetes-map-type: atomic
+      required:
+      - source
+      type: object
+    status:
+      description: VirtualMachineBackupTrackerStatus is the status for a VirtualMachineBackupTracker
+        resource
+      properties:
+        latestCheckpoint:
+          description: |-
+            LatestCheckpoint is the metadata of the checkpoint of
+            the latest preformed backup
+          properties:
+            creationTime:
+              format: date-time
+              type: string
+            disks:
+              items:
+                type: string
+              type: array
+            name:
+              type: string
+          type: object
+      type: object
+  required:
+  - spec
+  type: object
+`,
 	"virtualmachineclone": `openAPIV3Schema:
   description: VirtualMachineClone is a CRD that clones one VM into another.
   properties:

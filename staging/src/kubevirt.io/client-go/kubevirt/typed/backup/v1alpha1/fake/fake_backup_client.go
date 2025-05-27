@@ -23,10 +23,19 @@ package fake
 import (
 	rest "k8s.io/client-go/rest"
 	testing "k8s.io/client-go/testing"
+	v1alpha1 "kubevirt.io/client-go/kubevirt/typed/backup/v1alpha1"
 )
 
 type FakeBackupV1alpha1 struct {
 	*testing.Fake
+}
+
+func (c *FakeBackupV1alpha1) VirtualMachineBackups(namespace string) v1alpha1.VirtualMachineBackupInterface {
+	return &FakeVirtualMachineBackups{c, namespace}
+}
+
+func (c *FakeBackupV1alpha1) VirtualMachineBackupTrackers(namespace string) v1alpha1.VirtualMachineBackupTrackerInterface {
+	return &FakeVirtualMachineBackupTrackers{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate
