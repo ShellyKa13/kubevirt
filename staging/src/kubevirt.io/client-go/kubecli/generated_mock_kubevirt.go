@@ -78,6 +78,7 @@ import (
 	v1beta115 "k8s.io/client-go/kubernetes/typed/storage/v1beta1"
 	v1alpha19 "k8s.io/client-go/kubernetes/typed/storagemigration/v1alpha1"
 	rest "k8s.io/client-go/rest"
+	v123 "kubevirt.io/api/backup/v1alpha1"
 	v121 "kubevirt.io/api/core/v1"
 	containerizeddataimporter "kubevirt.io/client-go/containerizeddataimporter"
 	externalsnapshotter "kubevirt.io/client-go/externalsnapshotter"
@@ -1538,6 +1539,20 @@ func (mr *MockVirtualMachineInstanceInterfaceMockRecorder) Patch(ctx, name, pt, 
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, name, pt, data, opts}, subresources...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Patch", reflect.TypeOf((*MockVirtualMachineInstanceInterface)(nil).Patch), varargs...)
+}
+
+// Backup mocks base method.
+func (m *MockVirtualMachineInstanceInterface) Backup(ctx context.Context, name string, backupOptions *v123.BackupOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Backup", ctx, name, backupOptions)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Backup indicates an expected call of Backup.
+func (mr *MockVirtualMachineInstanceInterfaceMockRecorder) Backup(ctx, name, backupOptions any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Backup", reflect.TypeOf((*MockVirtualMachineInstanceInterface)(nil).Backup), ctx, name, backupOptions)
 }
 
 // Pause mocks base method.

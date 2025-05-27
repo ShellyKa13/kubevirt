@@ -869,6 +869,7 @@ rules:
   - virtualmachineinstances/reset
   - virtualmachineinstances/sev/setupsession
   - virtualmachineinstances/sev/injectlaunchsecret
+  - virtualmachineinstances/backup
   verbs:
   - update
 - apiGroups:
@@ -1025,6 +1026,7 @@ rules:
   - virtualmachineinstances/reset
   - virtualmachineinstances/sev/setupsession
   - virtualmachineinstances/sev/injectlaunchsecret
+  - virtualmachineinstances/backup
   verbs:
   - update
 - apiGroups:

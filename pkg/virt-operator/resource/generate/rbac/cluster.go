@@ -85,6 +85,7 @@ const (
 	apiVMInstancesSEVSetupSession           = "virtualmachineinstances/sev/setupsession"
 	apiVMInstancesSEVInjectLaunchSecret     = "virtualmachineinstances/sev/injectlaunchsecret"
 	apiVMInstancesUSBRedir                  = "virtualmachineinstances/usbredir"
+	apiVMInstancesBackup                    = "virtualmachineinstances/backup"
 )
 
 func GetAllCluster() []runtime.Object {
@@ -223,6 +224,7 @@ func newAdminClusterRole() *rbacv1.ClusterRole {
 					apiVMInstancesReset,
 					apiVMInstancesSEVSetupSession,
 					apiVMInstancesSEVInjectLaunchSecret,
+					apiVMInstancesBackup,
 				},
 				Verbs: []string{
 					"update",
@@ -416,6 +418,7 @@ func newEditClusterRole() *rbacv1.ClusterRole {
 					apiVMInstancesReset,
 					apiVMInstancesSEVSetupSession,
 					apiVMInstancesSEVInjectLaunchSecret,
+					apiVMInstancesBackup,
 				},
 				Verbs: []string{
 					"update",

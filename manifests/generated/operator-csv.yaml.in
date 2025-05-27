@@ -867,6 +867,7 @@ spec:
           - virtualmachineinstances/reset
           - virtualmachineinstances/sev/setupsession
           - virtualmachineinstances/sev/injectlaunchsecret
+          - virtualmachineinstances/backup
           verbs:
           - update
         - apiGroups:
@@ -1023,6 +1024,7 @@ spec:
           - virtualmachineinstances/reset
           - virtualmachineinstances/sev/setupsession
           - virtualmachineinstances/sev/injectlaunchsecret
+          - virtualmachineinstances/backup
           verbs:
           - update
         - apiGroups:

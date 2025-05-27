@@ -50,6 +50,7 @@ import (
 
 	"kubevirt.io/kubevirt/pkg/util/ratelimiter"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/client-go/log"
@@ -583,6 +584,17 @@ func (app *virtAPIApp) composeSubresources() {
 			Returns(http.StatusOK, "OK", "").
 			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
 
+		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("backup")).
+			To(subresourceApp.BackupVMRequestHandler).
+			Consumes(mime.MIME_ANY).
+			Reads(backupv1.BackupOptions{}).
+			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+			Operation(version.Version+"Backup").
+			Doc("Get a VirtualMachineInstance backup.").
+			Returns(http.StatusOK, "OK", "").
+			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+
 		// Return empty api resource list.
 		// K8s expects to be able to retrieve a resource list for each aggregated
 		// app in order to discover what resources it provides. Without returning
@@ -611,6 +623,10 @@ func (app *virtAPIApp) composeSubresources() {
 					},
 					{
 						Name:       "virtualmachineinstances/portforward",
+						Namespaced: true,
+					},
+					{
+						Name:       "virtualmachineinstances/backup",
 						Namespaced: true,
 					},
 					{

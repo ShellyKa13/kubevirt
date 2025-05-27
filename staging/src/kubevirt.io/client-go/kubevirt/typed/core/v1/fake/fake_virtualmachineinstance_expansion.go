@@ -25,6 +25,7 @@ import (
 
 	"k8s.io/client-go/testing"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	v1 "kubevirt.io/api/core/v1"
 	kvcorev1 "kubevirt.io/client-go/kubevirt/typed/core/v1"
 	fake2 "kubevirt.io/client-go/testing"
@@ -156,6 +157,13 @@ func (c *FakeVirtualMachineInstances) SEVSetupSession(ctx context.Context, name 
 func (c *FakeVirtualMachineInstances) SEVInjectLaunchSecret(ctx context.Context, name string, sevSecretOptions *v1.SEVSecretOptions) error {
 	_, err := c.Fake.
 		Invokes(fake2.NewPutSubresourceAction(virtualmachineinstancesResource, c.ns, "sev/injectlaunchsecret", name, sevSecretOptions), nil)
+
+	return err
+}
+
+func (c *FakeVirtualMachineInstances) Backup(ctx context.Context, name string, backupOptions *backupv1.BackupOptions) error {
+	_, err := c.Fake.
+		Invokes(fake2.NewPutSubresourceAction(virtualmachineinstancesResource, c.ns, "backup", name, backupOptions), nil)
 
 	return err
 }

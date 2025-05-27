@@ -4,6 +4,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "authorizer.go",
+        "backup.go",
         "console.go",
         "dialers.go",
         "expand.go",
