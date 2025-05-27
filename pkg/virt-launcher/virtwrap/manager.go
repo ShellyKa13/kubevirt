@@ -50,6 +50,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	backupv1 "kubevirt.io/api/backup/v1alpha1"
 	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/log"
 
@@ -145,6 +146,7 @@ type DomainManager interface {
 	Exec(string, string, []string, int32) (string, error)
 	GuestPing(string) error
 	MemoryDump(vmi *v1.VirtualMachineInstance, dumpPath string) error
+	BackupBegin(*v1.VirtualMachineInstance, *backupv1.BackupOptions)
 	GetQemuVersion() (string, error)
 	UpdateVCPUs(vmi *v1.VirtualMachineInstance, options *cmdv1.VirtualMachineOptions) error
 	GetSEVInfo() (*v1.SEVPlatformInfo, error)
@@ -179,7 +181,7 @@ type LibvirtDomainManager struct {
 	directIOChecker          converter.DirectIOChecker
 	disksInfo                map[string]*osdisk.DiskInfo
 	cancelSafetyUnfreezeChan chan struct{}
-	migrateInfoStats         *stats.DomainJobInfo
+	domainInfoStats          *stats.DomainJobInfo
 	diskMemoryLimitBytes     int64
 
 	metadataCache             *metadata.Cache
@@ -237,7 +239,7 @@ func newLibvirtDomainManager(connection cli.Connection, virtShareDir, ephemeralD
 		directIOChecker:               directIOChecker,
 		disksInfo:                     map[string]*osdisk.DiskInfo{},
 		cancelSafetyUnfreezeChan:      make(chan struct{}),
-		migrateInfoStats:              &stats.DomainJobInfo{},
+		domainInfoStats:               &stats.DomainJobInfo{},
 		metadataCache:                 metadataCache,
 		cpuSetGetter:                  cpuSetGetter,
 		imageVolumeFeatureGateEnabled: imageVolumeEnabled,
@@ -1121,12 +1123,12 @@ func isSerialConsoleLogEnabled(clusterSerialConsoleLogDisabled bool, vmi *v1.Vir
 }
 
 func shouldCreateQCOW2Overlay(vmi *v1.VirtualMachineInstance) bool {
-	return vmi.Status.ChangedBlockTracking == v1.ChangedBlockTrackingInitializing
+	return IsChangedBlockTrackingInitializing(vmi)
 }
 
 func shouldApplyChangedBlockTracking(vmi *v1.VirtualMachineInstance) bool {
-	return vmi.Status.ChangedBlockTracking == v1.ChangedBlockTrackingInitializing ||
-		vmi.Status.ChangedBlockTracking == v1.ChangedBlockTrackingEnabled
+	return IsChangedBlockTrackingInitializing(vmi) ||
+		IsChangedBlockTrackingEnabled(vmi)
 }
 
 func (l *LibvirtDomainManager) SyncVMI(vmi *v1.VirtualMachineInstance, allowEmulation bool, options *cmdv1.VirtualMachineOptions) (*api.DomainSpec, error) {
@@ -2210,7 +2212,7 @@ func (l *LibvirtDomainManager) getDomainStats() ([]*stats.DomainStats, error) {
 	statsTypes := libvirt.DOMAIN_STATS_BALLOON | libvirt.DOMAIN_STATS_CPU_TOTAL | libvirt.DOMAIN_STATS_VCPU | libvirt.DOMAIN_STATS_INTERFACE | libvirt.DOMAIN_STATS_BLOCK | libvirt.DOMAIN_STATS_DIRTYRATE
 	flags := libvirt.CONNECT_GET_ALL_DOMAINS_STATS_RUNNING | libvirt.CONNECT_GET_ALL_DOMAINS_STATS_PAUSED
 
-	return l.virConn.GetDomainStats(statsTypes, l.migrateInfoStats, flags)
+	return l.virConn.GetDomainStats(statsTypes, l.domainInfoStats, flags)
 }
 
 func (l *LibvirtDomainManager) getDomainDirtyRateStats(calculationDuration time.Duration) ([]*stats.DomainStatsDirtyRate, error) {
@@ -2665,4 +2667,8 @@ func getDomainCreateFlags(vmi *v1.VirtualMachineInstance) libvirt.DomainCreateFl
 		flags |= libvirt.DOMAIN_START_PAUSED
 	}
 	return flags
+}
+
+func (l *LibvirtDomainManager) BackupBegin(vmi *v1.VirtualMachineInstance, backupOptions *backupv1.BackupOptions) {
+	l.backupBegin(vmi, backupOptions)
 }

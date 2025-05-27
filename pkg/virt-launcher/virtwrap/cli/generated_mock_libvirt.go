@@ -453,6 +453,20 @@ func (mr *MockVirDomainMockRecorder) AuthorizedSSHKeysSet(user, keys, flags any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AuthorizedSSHKeysSet", reflect.TypeOf((*MockVirDomain)(nil).AuthorizedSSHKeysSet), user, keys, flags)
 }
 
+// BackupBegin mocks base method.
+func (m *MockVirDomain) BackupBegin(backupXML, checkpointXML string, flags libvirt.DomainBackupBeginFlags) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BackupBegin", backupXML, checkpointXML, flags)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BackupBegin indicates an expected call of BackupBegin.
+func (mr *MockVirDomainMockRecorder) BackupBegin(backupXML, checkpointXML, flags any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackupBegin", reflect.TypeOf((*MockVirDomain)(nil).BackupBegin), backupXML, checkpointXML, flags)
+}
+
 // BlockResize mocks base method.
 func (m *MockVirDomain) BlockResize(disk string, size uint64, flags libvirt.DomainBlockResizeFlags) error {
 	m.ctrl.T.Helper()
