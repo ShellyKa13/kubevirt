@@ -42,6 +42,7 @@ go_test(
 go_library(
     name = "go_default_library",
     srcs = [
+        "backup.go",
         "data-volume-template.go",
         "vm-storage-admitter.go",
         "vm-storage-status.go",
@@ -55,6 +56,7 @@ go_library(
         "//pkg/storage/backend-storage:go_default_library",
         "//pkg/util/webhooks:go_default_library",
         "//pkg/virt-config:go_default_library",
+        "//staging/src/kubevirt.io/api/backup/v1alpha1:go_default_library",
         "//staging/src/kubevirt.io/api/core:go_default_library",
         "//staging/src/kubevirt.io/api/core/v1:go_default_library",
         "//staging/src/kubevirt.io/api/export/v1beta1:go_default_library",
