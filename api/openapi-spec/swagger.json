@@ -16585,6 +16585,36 @@
      }
     }
    },
+   "v1.VirtualMachineInstanceBackupStatus": {
+    "description": "VirtualMachineInstanceBackupStatus tracks the information of the executed backup",
+    "type": "object",
+    "properties": {
+     "abortStatus": {
+      "description": "AbortStatus indicates the status of aborting the backup",
+      "type": "string"
+     },
+     "backupName": {
+      "description": "BackupName is the name of the executed backup",
+      "type": "string"
+     },
+     "checkpointName": {
+      "description": "CheckpointName is the name of the executed backup checkpoint",
+      "type": "string"
+     },
+     "completed": {
+      "description": "Completed indicates the backup completed",
+      "type": "boolean"
+     },
+     "failed": {
+      "description": "Failed indicates that the backup failed",
+      "type": "boolean"
+     },
+     "failureReason": {
+      "description": "FailureReason indicates the reason the backup failed",
+      "type": "string"
+     }
+    }
+   },
    "v1.VirtualMachineInstanceCondition": {
     "type": "object",
     "required": [
@@ -17751,6 +17781,10 @@
        "type": "string",
        "default": ""
       }
+     },
+     "backupStatus": {
+      "description": "BackupStatus represents the status of vmi backup",
+      "$ref": "#/definitions/v1.VirtualMachineInstanceBackupStatus"
      },
      "changedBlockTracking": {
       "description": "ChangedBlockTracking indicates the state of the changedBlockTracking enablement",

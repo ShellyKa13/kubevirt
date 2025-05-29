@@ -1365,6 +1365,7 @@ func (c *VirtualMachineController) updateVMIStatusFromDomain(vmi *v1.VirtualMach
 	c.updateGuestInfoFromDomain(vmi, domain)
 	c.updateVolumeStatusesFromDomain(vmi, domain)
 	c.updateFSFreezeStatus(vmi, domain)
+	c.updateBackupStatus(vmi, domain)
 	c.updateMachineType(vmi, domain)
 	if err = c.updateMemoryInfo(vmi, domain); err != nil {
 		return err
@@ -3810,4 +3811,18 @@ func isReadOnlyDisk(disk *v1.Disk) bool {
 	isReadOnlyCDRom := disk.CDRom != nil && (disk.CDRom.ReadOnly == nil || *disk.CDRom.ReadOnly)
 
 	return isReadOnlyCDRom
+}
+
+func (c *VirtualMachineController) updateBackupStatus(vmi *v1.VirtualMachineInstance, domain *api.Domain) {
+	if domain == nil ||
+		domain.Spec.Metadata.KubeVirt.Backup == nil ||
+		vmi.Status.BackupStatus == nil {
+		return
+	}
+	backupMetadata := domain.Spec.Metadata.KubeVirt.Backup
+	vmi.Status.BackupStatus.CheckpointName = backupMetadata.CheckpointName
+	vmi.Status.BackupStatus.Completed = backupMetadata.Completed
+	vmi.Status.BackupStatus.Failed = backupMetadata.Failed
+	vmi.Status.BackupStatus.FailureReason = &backupMetadata.FailureReason
+	vmi.Status.BackupStatus.AbortStatus = &backupMetadata.AbortStatus
 }

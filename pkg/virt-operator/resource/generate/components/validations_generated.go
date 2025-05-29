@@ -13448,6 +13448,29 @@ var CRDsValidation map[string]string = map[string]string{
             ActivePods is a mapping of pod UID to node name.
             It is possible for multiple pods to be running for a single VMI during migration.
           type: object
+        backupStatus:
+          description: BackupStatus represents the status of vmi backup
+          nullable: true
+          properties:
+            abortStatus:
+              description: AbortStatus indicates the status of aborting the backup
+              type: string
+            backupName:
+              description: BackupName is the name of the executed backup
+              type: string
+            checkpointName:
+              description: CheckpointName is the name of the executed backup checkpoint
+              type: string
+            completed:
+              description: Completed indicates the backup completed
+              type: boolean
+            failed:
+              description: Failed indicates that the backup failed
+              type: boolean
+            failureReason:
+              description: FailureReason indicates the reason the backup failed
+              type: string
+          type: object
         changedBlockTracking:
           description: ChangedBlockTracking indicates the state of the changedBlockTracking
             enablement

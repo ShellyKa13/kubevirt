@@ -585,6 +585,13 @@ status:
   VSOCKCID: 4294967288
   activePods:
     activePodsKey: activePodsValue
+  backupStatus:
+    abortStatus: abortStatusValue
+    backupName: backupNameValue
+    checkpointName: checkpointNameValue
+    completed: true
+    failed: true
+    failureReason: failureReasonValue
   changedBlockTracking: changedBlockTrackingValue
   conditions:
   - lastProbeTime: "1987-01-01T01:01:01Z"

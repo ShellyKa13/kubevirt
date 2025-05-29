@@ -84,6 +84,19 @@ func (VirtualMachineInstanceStatus) SwaggerDoc() map[string]string {
 		"memory":                        "Memory shows various informations about the VirtualMachine memory.\n+optional",
 		"migratedVolumes":               "MigratedVolumes lists the source and destination volumes during the volume migration\n+listType=atomic\n+optional",
 		"changedBlockTracking":          "ChangedBlockTracking indicates the state of the changedBlockTracking enablement\n+nullable\n+optional",
+		"backupStatus":                  "BackupStatus represents the status of vmi backup\n+nullable\n+optional",
+	}
+}
+
+func (VirtualMachineInstanceBackupStatus) SwaggerDoc() map[string]string {
+	return map[string]string{
+		"":               "VirtualMachineInstanceBackupStatus tracks the information of the executed backup",
+		"backupName":     "BackupName is the name of the executed backup",
+		"checkpointName": "CheckpointName is the name of the executed backup checkpoint",
+		"completed":      "Completed indicates the backup completed",
+		"failed":         "Failed indicates that the backup failed",
+		"failureReason":  "FailureReason indicates the reason the backup failed",
+		"abortStatus":    "AbortStatus indicates the status of aborting the backup",
 	}
 }
 

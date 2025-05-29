@@ -305,6 +305,27 @@ type VirtualMachineInstanceStatus struct {
 	// +nullable
 	// +optional
 	ChangedBlockTracking ChangedBlockTrackingState `json:"changedBlockTracking,omitempty" optional:"true"`
+
+	// BackupStatus represents the status of vmi backup
+	// +nullable
+	// +optional
+	BackupStatus *VirtualMachineInstanceBackupStatus `json:"backupStatus,omitempty"`
+}
+
+// VirtualMachineInstanceBackupStatus tracks the information of the executed backup
+type VirtualMachineInstanceBackupStatus struct {
+	// BackupName is the name of the executed backup
+	BackupName string `json:"backupName,omitempty"`
+	// CheckpointName is the name of the executed backup checkpoint
+	CheckpointName string `json:"checkpointName,omitempty"`
+	// Completed indicates the backup completed
+	Completed bool `json:"completed,omitempty"`
+	// Failed indicates that the backup failed
+	Failed bool `json:"failed,omitempty"`
+	// FailureReason indicates the reason the backup failed
+	FailureReason *string `json:"failureReason,omitempty"`
+	// AbortStatus indicates the status of aborting the backup
+	AbortStatus *string `json:"abortStatus,omitempty"`
 }
 
 // StorageMigratedVolumeInfo tracks the information about the source and destination volumes during the volume migration

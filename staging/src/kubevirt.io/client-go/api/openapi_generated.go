@@ -531,6 +531,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"kubevirt.io/api/core/v1.VirtualMachine":                                                     schema_kubevirtio_api_core_v1_VirtualMachine(ref),
 		"kubevirt.io/api/core/v1.VirtualMachineCondition":                                            schema_kubevirtio_api_core_v1_VirtualMachineCondition(ref),
 		"kubevirt.io/api/core/v1.VirtualMachineInstance":                                             schema_kubevirtio_api_core_v1_VirtualMachineInstance(ref),
+		"kubevirt.io/api/core/v1.VirtualMachineInstanceBackupStatus":                                 schema_kubevirtio_api_core_v1_VirtualMachineInstanceBackupStatus(ref),
 		"kubevirt.io/api/core/v1.VirtualMachineInstanceCommonMigrationState":                         schema_kubevirtio_api_core_v1_VirtualMachineInstanceCommonMigrationState(ref),
 		"kubevirt.io/api/core/v1.VirtualMachineInstanceCondition":                                    schema_kubevirtio_api_core_v1_VirtualMachineInstanceCondition(ref),
 		"kubevirt.io/api/core/v1.VirtualMachineInstanceFileSystem":                                   schema_kubevirtio_api_core_v1_VirtualMachineInstanceFileSystem(ref),
@@ -25094,6 +25095,61 @@ func schema_kubevirtio_api_core_v1_VirtualMachineInstance(ref common.ReferenceCa
 	}
 }
 
+func schema_kubevirtio_api_core_v1_VirtualMachineInstanceBackupStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "VirtualMachineInstanceBackupStatus tracks the information of the executed backup",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"backupName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BackupName is the name of the executed backup",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"checkpointName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "CheckpointName is the name of the executed backup checkpoint",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"completed": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Completed indicates the backup completed",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"failed": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Failed indicates that the backup failed",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"failureReason": {
+						SchemaProps: spec.SchemaProps{
+							Description: "FailureReason indicates the reason the backup failed",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"abortStatus": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AbortStatus indicates the status of aborting the backup",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func schema_kubevirtio_api_core_v1_VirtualMachineInstanceCommonMigrationState(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -27392,11 +27448,17 @@ func schema_kubevirtio_api_core_v1_VirtualMachineInstanceStatus(ref common.Refer
 							Format:      "",
 						},
 					},
+					"backupStatus": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BackupStatus represents the status of vmi backup",
+							Ref:         ref("kubevirt.io/api/core/v1.VirtualMachineInstanceBackupStatus"),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"kubevirt.io/api/core/v1.CPUTopology", "kubevirt.io/api/core/v1.KernelBootStatus", "kubevirt.io/api/core/v1.Machine", "kubevirt.io/api/core/v1.MemoryStatus", "kubevirt.io/api/core/v1.StorageMigratedVolumeInfo", "kubevirt.io/api/core/v1.TopologyHints", "kubevirt.io/api/core/v1.VirtualMachineInstanceCondition", "kubevirt.io/api/core/v1.VirtualMachineInstanceGuestOSInfo", "kubevirt.io/api/core/v1.VirtualMachineInstanceMigrationState", "kubevirt.io/api/core/v1.VirtualMachineInstanceNetworkInterface", "kubevirt.io/api/core/v1.VirtualMachineInstancePhaseTransitionTimestamp", "kubevirt.io/api/core/v1.VolumeStatus"},
+			"kubevirt.io/api/core/v1.CPUTopology", "kubevirt.io/api/core/v1.KernelBootStatus", "kubevirt.io/api/core/v1.Machine", "kubevirt.io/api/core/v1.MemoryStatus", "kubevirt.io/api/core/v1.StorageMigratedVolumeInfo", "kubevirt.io/api/core/v1.TopologyHints", "kubevirt.io/api/core/v1.VirtualMachineInstanceBackupStatus", "kubevirt.io/api/core/v1.VirtualMachineInstanceCondition", "kubevirt.io/api/core/v1.VirtualMachineInstanceGuestOSInfo", "kubevirt.io/api/core/v1.VirtualMachineInstanceMigrationState", "kubevirt.io/api/core/v1.VirtualMachineInstanceNetworkInterface", "kubevirt.io/api/core/v1.VirtualMachineInstancePhaseTransitionTimestamp", "kubevirt.io/api/core/v1.VolumeStatus"},
 	}
 }
 
