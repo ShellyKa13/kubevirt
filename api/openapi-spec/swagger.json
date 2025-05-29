@@ -13045,6 +13045,10 @@
      "state"
     ],
     "properties": {
+     "backupStatus": {
+      "description": "BackupStatus represents the status of vmi backup",
+      "$ref": "#/definitions/v1.VirtualMachineInstanceBackupStatus"
+     },
      "state": {
       "description": "State represents the current CBT state",
       "type": "string",
@@ -16942,6 +16946,36 @@
       "description": "Status is the high level overview of how the VirtualMachineInstance is doing. It contains information available to controllers and users.",
       "default": {},
       "$ref": "#/definitions/v1.VirtualMachineInstanceStatus"
+     }
+    }
+   },
+   "v1.VirtualMachineInstanceBackupStatus": {
+    "description": "VirtualMachineInstanceBackupStatus tracks the information of the executed backup",
+    "type": "object",
+    "properties": {
+     "abortStatus": {
+      "description": "AbortStatus indicates the status of aborting the backup",
+      "type": "string"
+     },
+     "backupMsg": {
+      "description": "BackupMsg resturns any relevant information like failure reason unfreeze failed etc...",
+      "type": "string"
+     },
+     "backupName": {
+      "description": "BackupName is the name of the executed backup",
+      "type": "string"
+     },
+     "checkpointName": {
+      "description": "CheckpointName is the name of the executed backup checkpoint",
+      "type": "string"
+     },
+     "completed": {
+      "description": "Completed indicates the backup completed",
+      "type": "boolean"
+     },
+     "failed": {
+      "description": "Failed indicates that the backup failed",
+      "type": "boolean"
      }
     }
    },

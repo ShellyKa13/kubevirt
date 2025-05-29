@@ -8319,6 +8319,31 @@ var CRDsValidation map[string]string = map[string]string{
           description: ChangedBlockTracking represents the status of the changedBlockTracking
           nullable: true
           properties:
+            backupStatus:
+              description: BackupStatus represents the status of vmi backup
+              nullable: true
+              properties:
+                abortStatus:
+                  description: AbortStatus indicates the status of aborting the backup
+                  type: string
+                backupMsg:
+                  description: |-
+                    BackupMsg resturns any relevant information like failure reason
+                    unfreeze failed etc...
+                  type: string
+                backupName:
+                  description: BackupName is the name of the executed backup
+                  type: string
+                checkpointName:
+                  description: CheckpointName is the name of the executed backup checkpoint
+                  type: string
+                completed:
+                  description: Completed indicates the backup completed
+                  type: boolean
+                failed:
+                  description: Failed indicates that the backup failed
+                  type: boolean
+              type: object
             state:
               description: State represents the current CBT state
               type: string
@@ -13820,6 +13845,31 @@ var CRDsValidation map[string]string = map[string]string{
           description: ChangedBlockTracking represents the status of the changedBlockTracking
           nullable: true
           properties:
+            backupStatus:
+              description: BackupStatus represents the status of vmi backup
+              nullable: true
+              properties:
+                abortStatus:
+                  description: AbortStatus indicates the status of aborting the backup
+                  type: string
+                backupMsg:
+                  description: |-
+                    BackupMsg resturns any relevant information like failure reason
+                    unfreeze failed etc...
+                  type: string
+                backupName:
+                  description: BackupName is the name of the executed backup
+                  type: string
+                checkpointName:
+                  description: CheckpointName is the name of the executed backup checkpoint
+                  type: string
+                completed:
+                  description: Completed indicates the backup completed
+                  type: boolean
+                failed:
+                  description: Failed indicates that the backup failed
+                  type: boolean
+              type: object
             state:
               description: State represents the current CBT state
               type: string
@@ -30531,6 +30581,34 @@ var CRDsValidation map[string]string = map[string]string{
                         changedBlockTracking
                       nullable: true
                       properties:
+                        backupStatus:
+                          description: BackupStatus represents the status of vmi backup
+                          nullable: true
+                          properties:
+                            abortStatus:
+                              description: AbortStatus indicates the status of aborting
+                                the backup
+                              type: string
+                            backupMsg:
+                              description: |-
+                                BackupMsg resturns any relevant information like failure reason
+                                unfreeze failed etc...
+                              type: string
+                            backupName:
+                              description: BackupName is the name of the executed
+                                backup
+                              type: string
+                            checkpointName:
+                              description: CheckpointName is the name of the executed
+                                backup checkpoint
+                              type: string
+                            completed:
+                              description: Completed indicates the backup completed
+                              type: boolean
+                            failed:
+                              description: Failed indicates that the backup failed
+                              type: boolean
+                          type: object
                         state:
                           description: State represents the current CBT state
                           type: string

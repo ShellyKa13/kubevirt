@@ -1327,7 +1327,15 @@
       }
     },
     "changedBlockTracking": {
-      "state": "stateValue"
+      "state": "stateValue",
+      "backupStatus": {
+        "backupName": "backupNameValue",
+        "checkpointName": "checkpointNameValue",
+        "completed": true,
+        "failed": true,
+        "backupMsg": "backupMsgValue",
+        "abortStatus": "abortStatusValue"
+      }
     },
     "instancetypeRef": {
       "name": "nameValue",

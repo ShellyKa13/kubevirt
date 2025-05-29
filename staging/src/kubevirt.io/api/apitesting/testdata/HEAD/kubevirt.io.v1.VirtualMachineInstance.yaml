@@ -607,6 +607,13 @@ status:
   activePods:
     activePodsKey: activePodsValue
   changedBlockTracking:
+    backupStatus:
+      abortStatus: abortStatusValue
+      backupMsg: backupMsgValue
+      backupName: backupNameValue
+      checkpointName: checkpointNameValue
+      completed: true
+      failed: true
     state: stateValue
   conditions:
   - lastProbeTime: "1987-01-01T01:01:01Z"

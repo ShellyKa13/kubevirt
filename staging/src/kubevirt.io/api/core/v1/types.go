@@ -2126,11 +2126,36 @@ const (
 	ChangedBlockTrackingFGDisabled ChangedBlockTrackingState = "IncrementalBackupFeatureGateDisabled"
 )
 
+// VirtualMachineInstanceBackupStatus tracks the information of the executed backup
+// +k8s:openapi-gen=true
+type VirtualMachineInstanceBackupStatus struct {
+	// BackupName is the name of the executed backup
+	BackupName string `json:"backupName,omitempty"`
+	// CheckpointName is the name of the executed backup checkpoint
+	CheckpointName string `json:"checkpointName,omitempty"`
+	// Completed indicates the backup completed
+	Completed bool `json:"completed,omitempty"`
+	// Failed indicates that the backup failed
+	// +optional
+	Failed bool `json:"failed,omitempty"`
+	// BackupMsg resturns any relevant information like failure reason
+	// unfreeze failed etc...
+	// +optional
+	BackupMsg *string `json:"backupMsg,omitempty"`
+	// AbortStatus indicates the status of aborting the backup
+	// +optional
+	AbortStatus *string `json:"abortStatus,omitempty"`
+}
+
 // ChangedBlockTrackingStatus represents the status of ChangedBlockTracking for a VM
 // +k8s:openapi-gen=true
 type ChangedBlockTrackingStatus struct {
 	// State represents the current CBT state
 	State ChangedBlockTrackingState `json:"state"`
+	// BackupStatus represents the status of vmi backup
+	// +nullable
+	// +optional
+	BackupStatus *VirtualMachineInstanceBackupStatus `json:"backupStatus,omitempty"`
 }
 
 type VolumeUpdateState struct {
