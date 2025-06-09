@@ -969,6 +969,9 @@ func (app *virtAPIApp) registerValidatingWebhooks(informers *webhooks.Informers)
 	http.HandleFunc(components.VMRestoreValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeVMRestores(w, r, app.clusterConfig, app.virtCli, informers)
 	})
+	http.HandleFunc(components.VMBackupValidatePath, func(w http.ResponseWriter, r *http.Request) {
+		validating_webhook.ServeVMBackups(w, r, app.clusterConfig, app.virtCli, informers)
+	})
 	http.HandleFunc(components.VMExportValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeVMExports(w, r, app.clusterConfig)
 	})
@@ -1143,6 +1146,7 @@ func (app *virtAPIApp) Run() {
 	crdInformer := kubeInformerFactory.CRD()
 	vmiPresetInformer := kubeInformerFactory.VirtualMachinePreset()
 	vmRestoreInformer := kubeInformerFactory.VirtualMachineRestore()
+	vmBackupInformer := kubeInformerFactory.VirtualMachineBackup()
 	namespaceInformer := kubeInformerFactory.Namespace()
 
 	stopChan := make(chan struct{}, 1)
@@ -1180,6 +1184,7 @@ func (app *virtAPIApp) Run() {
 	webhookInformers := &webhooks.Informers{
 		VMIPresetInformer:  vmiPresetInformer,
 		VMRestoreInformer:  vmRestoreInformer,
+		VMBackupInformer:   vmBackupInformer,
 		DataSourceInformer: dataSourceInformer,
 		NamespaceInformer:  namespaceInformer,
 	}
