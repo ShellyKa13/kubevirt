@@ -24,8 +24,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +44,6 @@ import (
 	hotplugdisk "kubevirt.io/kubevirt/pkg/hotplug-disk"
 	"kubevirt.io/kubevirt/pkg/pointer"
 	"kubevirt.io/kubevirt/pkg/storage/status"
-	"kubevirt.io/kubevirt/pkg/storage/types"
 )
 
 const (
@@ -69,15 +66,12 @@ const (
 	backupInProgress               = "Backup is in progress"
 	backupDeletionBeforeCompletion = "Backup was deleted before it completed"
 	backupDeleting                 = "Backup is deleting"
+	backupCompleted                = "Successfully completed VirtualMachineBackup"
+	backupFailed                   = "Failed to create VirtualMachineBackup"
 )
 
 var (
 	otherBackupInProgress         = "Another backup %s is already in progress"
-	failedTargetPVCAttach         = "Failed to attach target backup pvc: %s"
-	failedTargetPVCDetach         = "Failed to detach target backup pvc: %s"
-	attachTargetPVCMsg            = "Attaching backup target pvc %s to vmi %s"
-	detachTargetPVCMsg            = "Detached backup target pvc %s from vmi %s"
-	backupCompletedMsg            = "Successfully completed VirtualMachineBackup"
 	backupCompletedWithWarningMsg = "Completed VirtualMachineBackup, warning: %s"
 )
 
@@ -124,6 +118,9 @@ func NewVMBackupController(client kubecli.KubevirtClient,
 			DeleteFunc: c.handleBackup,
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
 	_, err = vmiInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			UpdateFunc: c.handleUpdateVMI,
@@ -242,7 +239,7 @@ func syncInfoError(err error) *SyncInfo {
 
 func (ctrl *VMBackupController) execute(key string) error {
 	logger := log.Log.With("VirtualMachineBackup", key)
-	logger.Info("Execute")
+	logger.V(4).Infof("Processing VirtualMachineBackup")
 	storeObj, exists, err := ctrl.backupInformer.GetStore().GetByKey(key)
 	if err != nil {
 		return err
@@ -256,7 +253,6 @@ func (ctrl *VMBackupController) execute(key string) error {
 		return fmt.Errorf("unexpected resource %+v", storeObj)
 	}
 
-	logger.Info("before sync")
 	syncInfo := ctrl.sync(backup)
 	if syncInfo != nil && syncInfo.err != nil {
 		logger.Infof("sync error :%+v", syncInfo.err)
@@ -273,12 +269,22 @@ func (ctrl *VMBackupController) execute(key string) error {
 }
 
 func (ctrl *VMBackupController) sync(backup *backupv1.VirtualMachineBackup) *SyncInfo {
+	sourceName := getSourceName(backup)
+	if sourceName == "" {
+		return syncInfoError(fmt.Errorf("source name is empty"))
+	}
+
+	if isBackupDeleting(backup) {
+		return ctrl.deletionCleanup(backup)
+	}
+
 	vmi, syncInfo := ctrl.verifyBackupSource(backup)
-	if syncInfo != nil && syncInfo.err != nil {
+	if syncInfo != nil {
 		return syncInfo
 	}
 
-	if !isBackupInitializing(backup.Status) || isBackupDeleting(backup) {
+	log.Log.Infof("backup UID %s", backup.UID)
+	if !isBackupInitializing(backup.Status) || vmi == nil {
 		return ctrl.checkBackupCompletion(backup, vmi)
 	}
 	if backup.Status != nil {
@@ -288,10 +294,6 @@ func (ctrl *VMBackupController) sync(backup *backupv1.VirtualMachineBackup) *Syn
 	backup, err := ctrl.addBackupFinalizer(backup)
 	if err != nil {
 		return syncInfoError(err)
-	}
-
-	if vmi == nil {
-		return syncInfo
 	}
 
 	if err := ctrl.updateSourceBackupInProgress(vmi, backup.Name); err != nil {
@@ -314,13 +316,13 @@ func (ctrl *VMBackupController) sync(backup *backupv1.VirtualMachineBackup) *Syn
 			return syncInfo
 		}
 
-		if !ctrl.backupTargetPVCAttached(vmi, *pvcName) {
+		if !ctrl.backupTargetPVCAttached(vmi) {
 			return ctrl.attachBackupTargetPVC(vmi, *pvcName)
 		}
 		backupOptions.Mode = backupv1.PushMode
 		backupOptions.PushPath = pointer.P(hotplugdisk.GetVolumeMountDir(*pvcName))
 	default:
-		return syncInfoError(fmt.Errorf("Invalid backup mode"))
+		return syncInfoError(fmt.Errorf("invalid backup mode"))
 	}
 
 	log.Log.Object(vmi).Info("Sending Start backup command")
@@ -348,6 +350,7 @@ func (ctrl *VMBackupController) updateStatus(backup *backupv1.VirtualMachineBack
 	}
 
 	if syncInfo != nil {
+		log.Log.Infof("syncInfo: %+v", syncInfo)
 		switch syncInfo.event {
 		case backupInitiatedEvent:
 			log.Log.Info("backup updateStatus Progressing")
@@ -356,9 +359,9 @@ func (ctrl *VMBackupController) updateStatus(backup *backupv1.VirtualMachineBack
 			updateBackupCondition(backupOut, newDoneCondition(corev1.ConditionFalse, syncInfo.reason))
 		case backupFailedEvent:
 			log.Log.Info("backup updateStatus Failed")
-			updateBackupCondition(backupOut, newProgressingCondition(corev1.ConditionFalse, syncInfo.reason))
+			updateBackupCondition(backupOut, newProgressingCondition(corev1.ConditionFalse, backupFailed))
 			updateBackupCondition(backupOut, newFailureCondition(corev1.ConditionTrue, syncInfo.reason))
-			updateBackupCondition(backupOut, newDoneCondition(corev1.ConditionTrue, syncInfo.reason))
+			updateBackupCondition(backupOut, newDoneCondition(corev1.ConditionTrue, backupFailed))
 			ctrl.recorder.Eventf(backupOut, corev1.EventTypeWarning, backupFailedEvent, syncInfo.reason)
 		case backupAbortedEvent:
 			log.Log.Info("backup updateStatus abort")
@@ -366,7 +369,9 @@ func (ctrl *VMBackupController) updateStatus(backup *backupv1.VirtualMachineBack
 				removeBackupCondition(backupOut, backupv1.ConditionInitializing)
 				updateBackupCondition(backupOut, newProgressingCondition(corev1.ConditionFalse, syncInfo.reason))
 				updateBackupCondition(backupOut, newFailureCondition(corev1.ConditionTrue, syncInfo.reason))
-			} else if syncInfo.reason == string(backupv1.BackupAbortSucceeded) {
+				ctrl.recorder.Eventf(backupOut, corev1.EventTypeWarning, backupAbortedEvent, syncInfo.reason)
+			} else if syncInfo.reason == string(backupv1.BackupAbortSucceeded) ||
+				syncInfo.reason == string(backupv1.BackupAbortFailed) {
 				updateBackupCondition(backupOut, newProgressingCondition(corev1.ConditionFalse, syncInfo.reason))
 				updateBackupCondition(backupOut, newFailureCondition(corev1.ConditionTrue, syncInfo.reason))
 				updateBackupCondition(backupOut, newDoneCondition(corev1.ConditionTrue, syncInfo.reason))
@@ -387,16 +392,24 @@ func (ctrl *VMBackupController) updateStatus(backup *backupv1.VirtualMachineBack
 		}
 	}
 
-	if isBackupDeleting(backupOut) {
+	if isBackupDeleting(backupOut) && controller.HasFinalizer(backupOut, vmBackupFinalizer) {
+		log.Log.Infof("update backup %s is deleting", backupOut.Name)
 		updateBackupCondition(backupOut, newDeletingCondition(corev1.ConditionTrue, backupDeleting))
 	}
 
 	if !equality.Semantic.DeepEqual(backup, backupOut) {
-		diff := cmp.Diff(backup, backupOut)
-		log.Log.Infof("backups are different. Diff:\n%s", diff)
-		return ctrl.backupStatusUpdater.UpdateStatus(backupOut)
+		if _, err := ctrl.client.VirtualMachineBackup(backupOut.Namespace).UpdateStatus(context.Background(), backupOut, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func generateFinalizerPatch(test, replace []string) ([]byte, error) {
+	return patch.New(
+		patch.WithTest("/metadata/finalizers", test),
+		patch.WithReplace("/metadata/finalizers", replace),
+	).GeneratePayload()
 }
 
 func (ctrl *VMBackupController) addBackupFinalizer(backup *backupv1.VirtualMachineBackup) (*backupv1.VirtualMachineBackup, error) {
@@ -407,39 +420,56 @@ func (ctrl *VMBackupController) addBackupFinalizer(backup *backupv1.VirtualMachi
 	cpy := backup.DeepCopy()
 	controller.AddFinalizer(cpy, vmBackupFinalizer)
 
-	patch, err := patch.New(
-		patch.WithTest("/metadata/finalizers", backup.Finalizers),
-		patch.WithReplace("/metadata/finalizers", cpy.Finalizers),
-	).GeneratePayload()
+	patchBytes, err := generateFinalizerPatch(backup.Finalizers, cpy.Finalizers)
 	if err != nil {
 		return backup, err
 	}
 
-	return ctrl.client.VirtualMachineBackup(cpy.Namespace).Patch(context.Background(), cpy.Name, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	return ctrl.client.VirtualMachineBackup(cpy.Namespace).Patch(context.Background(), cpy.Name, k8stypes.JSONPatchType, patchBytes, metav1.PatchOptions{})
 }
 
-func (ctrl *VMBackupController) removeBackupFinalizer(backup *backupv1.VirtualMachineBackup) (*backupv1.VirtualMachineBackup, error) {
+func (ctrl *VMBackupController) removeBackupFinalizer(backup *backupv1.VirtualMachineBackup) *SyncInfo {
 	if !controller.HasFinalizer(backup, vmBackupFinalizer) {
-		return backup, nil
+		log.Log.Infof("backup %s does not have finalizer", backup.Name)
+		return nil
 	}
+	log.Log.Infof("removing backup %s finalizer", backup.Name)
 
 	cpy := backup.DeepCopy()
 	controller.RemoveFinalizer(cpy, vmBackupFinalizer)
 
-	patch, err := patch.New(
-		patch.WithTest("/metadata/finalizers", backup.Finalizers),
-		patch.WithReplace("/metadata/finalizers", cpy.Finalizers),
-	).GeneratePayload()
+	patchBytes, err := generateFinalizerPatch(backup.Finalizers, cpy.Finalizers)
 	if err != nil {
-		return backup, err
+		return syncInfoError(fmt.Errorf("failed to remove backup %s finalizer: %w", cpy.Name, err))
 	}
 
-	log.Log.Infof("remove backup %s finalizer", cpy.Name)
-	return ctrl.client.VirtualMachineBackup(cpy.Namespace).Patch(context.Background(), cpy.Name, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	backup, err = ctrl.client.VirtualMachineBackup(cpy.Namespace).Patch(context.Background(), cpy.Name, k8stypes.JSONPatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		return syncInfoError(fmt.Errorf("failed to remove backup %s finalizer: %w", cpy.Name, err))
+	}
+	log.Log.Infof("removed backup %s finalizer", backup.Name)
+	return nil
 }
 
 func getSourceName(backup *backupv1.VirtualMachineBackup) string {
+	// source name is fetched from the source field which is required until VirtualMachineBackupTracker is introduced
 	return backup.Spec.Source.Name
+}
+
+func (ctrl *VMBackupController) getVMI(backup *backupv1.VirtualMachineBackup) (*v1.VirtualMachineInstance, bool, error) {
+	sourceName := getSourceName(backup)
+	objKey := cacheKeyFunc(backup.Namespace, sourceName)
+
+	obj, exists, err := ctrl.vmiStore.GetByKey(objKey)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !exists {
+		return nil, false, nil
+	}
+
+	return obj.(*v1.VirtualMachineInstance), exists, nil
 }
 
 func (ctrl *VMBackupController) verifyBackupSource(backup *backupv1.VirtualMachineBackup) (*v1.VirtualMachineInstance, *SyncInfo) {
@@ -456,18 +486,16 @@ func (ctrl *VMBackupController) verifyBackupSource(backup *backupv1.VirtualMachi
 			reason: fmt.Sprintf("VM %s/%s doesnt exist", backup.Namespace, sourceName),
 		}
 	}
-	obj, exists, err := ctrl.vmiStore.GetByKey(objKey)
+	vmi, exists, err := ctrl.getVMI(backup)
 	if err != nil {
 		return nil, syncInfoError(err)
 	}
-
 	if !exists {
 		return nil, &SyncInfo{
 			event:  backupSourceNotRunning,
 			reason: fmt.Sprintf("vm %s is not running, can not do backup", sourceName),
 		}
 	}
-	vmi := obj.(*v1.VirtualMachineInstance)
 	if len(vmi.Spec.Volumes) == 0 {
 		return nil, &SyncInfo{
 			event:  backupSourceNoVolumesToBackup,
@@ -478,162 +506,25 @@ func (ctrl *VMBackupController) verifyBackupSource(backup *backupv1.VirtualMachi
 	return vmi, nil
 }
 
-func (ctrl *VMBackupController) verifyBackupTargetPVC(pvcName *string, namespace string) *SyncInfo {
-	if pvcName == nil {
-		return syncInfoError(fmt.Errorf("backup pvcName is empty"))
-	}
-
-	objKey := cacheKeyFunc(namespace, *pvcName)
-	obj, exists, err := ctrl.pvcStore.GetByKey(objKey)
-	if err != nil {
-		return syncInfoError(err)
-	}
-
-	if !exists {
-		return &SyncInfo{
-			event:  backupTargetPVCDoesntExist,
-			reason: fmt.Sprintf("PVC %s/%s doesnt exist", namespace, *pvcName),
-		}
-	}
-	pvc := obj.(*corev1.PersistentVolumeClaim)
-	if types.IsPVCBlock(pvc.Spec.VolumeMode) {
-		return syncInfoError(fmt.Errorf("provided pvc %s/%s is in block mode", namespace, *pvcName))
-	}
-
-	return nil
-}
-
-func (ctrl *VMBackupController) backupTargetPVCAttached(vmi *v1.VirtualMachineInstance, pvcName string) bool {
-	for _, volumeStatus := range vmi.Status.VolumeStatus {
-		if volumeStatus.Name == pvcName {
-			if volumeStatus.HotplugVolume != nil &&
-				volumeStatus.Phase == v1.HotplugVolumeMounted {
-				return true
-			} else {
-				return false
-			}
-		}
-	}
-	return false
-}
-
-func addTargetPVCToVMIVolumes(vmiSpec *v1.VirtualMachineInstanceSpec, pvcName string) []v1.Volume {
-	scratchVolume := &v1.ScratchVolumeSource{
-		PersistentVolumeClaimVolumeSource: v1.PersistentVolumeClaimVolumeSource{
-			PersistentVolumeClaimVolumeSource: corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: pvcName,
-			},
-			Hotpluggable: true,
-		},
-	}
-
-	newVolume := v1.Volume{
-		Name: pvcName,
-		VolumeSource: v1.VolumeSource{
-			ScratchVolume: scratchVolume,
-		},
-	}
-
-	newVolumes := append(vmiSpec.Volumes, newVolume)
-
-	return newVolumes
-}
-
-func removeTargetPVCFromVMIVolumes(vmiSpec *v1.VirtualMachineInstanceSpec, pvcName string) []v1.Volume {
-	vmiVolumes := []v1.Volume{}
-	for _, volume := range vmiSpec.Volumes {
-		if volume.Name != pvcName {
-			vmiVolumes = append(vmiVolumes, volume)
-		}
-	}
-
-	return vmiVolumes
-}
-
-func attachingInProgress(vmiSpec *v1.VirtualMachineInstanceSpec, pvcName string) bool {
-	for _, volume := range vmiSpec.Volumes {
-		if volume.Name == pvcName {
-			return true
-		}
-	}
-	return false
-}
-
-func (ctrl *VMBackupController) patchVMIVolumes(vmi *v1.VirtualMachineInstance, newVolumes []v1.Volume) error {
-	patchSet := patch.New(
-		patch.WithTest("/spec/volumes", vmi.Spec.Volumes),
-		patch.WithReplace("/spec/volumes", newVolumes),
-	)
-	patchBytes, err := patchSet.GeneratePayload()
-	if err != nil {
-		return err
-	}
-
-	log.Log.Object(vmi).V(4).Infof("Patching VMI: %s", string(patchBytes))
-	if _, err := ctrl.client.VirtualMachineInstance(vmi.Namespace).Patch(context.Background(), vmi.Name, k8stypes.JSONPatchType, patchBytes, metav1.PatchOptions{}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (ctrl *VMBackupController) attachBackupTargetPVC(vmi *v1.VirtualMachineInstance, pvcName string) *SyncInfo {
-	if attachingInProgress(&vmi.Spec, pvcName) {
-		return nil
-	}
-	pvcAttachMsg := fmt.Sprintf(attachTargetPVCMsg, pvcName, vmi.Name)
-	log.Log.Object(vmi).Info(pvcAttachMsg)
-	newVolumes := addTargetPVCToVMIVolumes(&vmi.Spec, pvcName)
-	err := ctrl.patchVMIVolumes(vmi, newVolumes)
-	if err != nil {
-		failedPatchErr := fmt.Errorf(failedTargetPVCAttach, err)
-		log.Log.Object(vmi).Error(failedPatchErr.Error())
-		return syncInfoError(failedPatchErr)
-	}
-
-	return &SyncInfo{
-		event:  backupTargetPVCAddVolumeSubmitted,
-		reason: pvcAttachMsg,
-	}
-}
-
-func (ctrl *VMBackupController) detachBackupTargetPVC(vmi *v1.VirtualMachineInstance, pvcName string) *SyncInfo {
-	if !attachingInProgress(&vmi.Spec, pvcName) {
-		return nil
-	}
-	pvcDetachMsg := fmt.Sprintf(detachTargetPVCMsg, pvcName, vmi.Name)
-	log.Log.Object(vmi).Info(pvcDetachMsg)
-	newVolumes := removeTargetPVCFromVMIVolumes(&vmi.Spec, pvcName)
-	err := ctrl.patchVMIVolumes(vmi, newVolumes)
-	if err != nil {
-		failedPatchErr := fmt.Errorf(failedTargetPVCDetach, err)
-		log.Log.Object(vmi).Error(failedPatchErr.Error())
-		return syncInfoError(failedPatchErr)
-	}
-
-	return &SyncInfo{
-		event:  backupTargetPVCRemoveVolumeSubmitted,
-		reason: pvcDetachMsg,
-	}
-}
-
 func (ctrl *VMBackupController) removeSourceBackupInProgress(vmi *v1.VirtualMachineInstance) *SyncInfo {
-	vmiCopy := vmi.DeepCopy()
-	if vmiCopy.Status.ChangedBlockTracking == nil || vmiCopy.Status.ChangedBlockTracking.BackupStatus == nil {
+	if vmi == nil || vmi.Status.ChangedBlockTracking == nil || vmi.Status.ChangedBlockTracking.BackupStatus == nil {
 		return nil
 	}
+
 	patch, err := patch.New(
 		patch.WithRemove("/status/backupStatus"),
 	).GeneratePayload()
 	if err != nil {
 		return syncInfoError(err)
 	}
+
 	log.Log.Object(vmi).V(4).Infof("Patching VMI: %s", patch)
 	_, err = ctrl.client.VirtualMachineInstance(vmi.Namespace).Patch(context.Background(), vmi.Name, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		log.Log.Errorf("failed removeSourceBackupInProgress :%s", err)
+		log.Log.Errorf("failed to remove BackupInProgress from VMI %s/%s :%s", vmi.Namespace, vmi.Name, err)
 		return syncInfoError(err)
 	}
-	log.Log.Info("removeSourceBackupInProgress updated")
+	log.Log.Info("removed BackupInProgress from VMI")
 
 	return nil
 }
@@ -669,72 +560,129 @@ func (ctrl *VMBackupController) updateSourceBackupInProgress(vmi *v1.VirtualMach
 
 func (ctrl *VMBackupController) checkBackupCompletion(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) *SyncInfo {
 	log.Log.Info("checkBackupCompletion")
-	if isBackupDeleting(backup) {
-		if syncInfo := ctrl.cleanupSource(backup, vmi); syncInfo != nil {
-			return syncInfo
-		}
-		if _, err := ctrl.removeBackupFinalizer(backup); err != nil {
-			return syncInfoError(err)
-		}
-		log.Log.Info("Backup got deleted before completion")
-		return &SyncInfo{
-			event:  backupFailedEvent,
-			reason: backupDeletionBeforeCompletion,
-		}
-	}
 	if IsBackupDone(backup.Status) {
-		log.Log.Info("Backup is done")
-		if syncInfo := ctrl.cleanupSource(backup, vmi); syncInfo != nil {
-			return syncInfo
-		}
 		return nil
 	}
 
 	if vmi == nil || vmi.Status.ChangedBlockTracking == nil || vmi.Status.ChangedBlockTracking.BackupStatus == nil {
+		done, syncInfo := ctrl.cleanup(backup, vmi)
+		if syncInfo != nil {
+			return syncInfo
+		}
+		if !done {
+			log.Log.V(3).Info("Cleanup in progress, requeueing to wait for completion")
+			return nil
+		}
+	}
+
+	backupStatus := vmi.Status.ChangedBlockTracking.BackupStatus
+	if !backupStatus.Completed {
 		return nil
 	}
-	backupStatus := vmi.Status.ChangedBlockTracking.BackupStatus
+
+	log.Log.Info("Backup completed, performing cleanup before marking as done")
+	done, syncInfo := ctrl.cleanup(backup, vmi)
+	if syncInfo != nil {
+		return syncInfo
+	}
+	if !done {
+		log.Log.V(3).Info("Cleanup in progress, requeueing to wait for completion")
+		return nil
+	}
+
 	switch {
 	case backupStatus.AbortStatus != nil:
 		log.Log.Infof("Backup status aborted %+v", backupStatus)
-		return &SyncInfo{
+		syncInfo = &SyncInfo{
 			event:  backupAbortedEvent,
 			reason: *backupStatus.AbortStatus,
 		}
-	case !backupStatus.Completed:
-		return nil
 	case backupStatus.Failed:
 		log.Log.Infof("Backup status failed %+v", backupStatus)
-		syncInfo := &SyncInfo{
+		syncInfo = &SyncInfo{
 			event: backupFailedEvent,
 		}
 		if backupStatus.BackupMsg != nil {
 			syncInfo.reason = *backupStatus.BackupMsg
 		}
-		return syncInfo
 	case backupStatus.BackupMsg != nil:
 		log.Log.Infof("Backup msg %+v", backupStatus)
-		return &SyncInfo{
+		syncInfo = &SyncInfo{
 			event:          backupCompletedWithWarningEvent,
 			reason:         fmt.Sprintf(backupCompletedWithWarningMsg, *backupStatus.BackupMsg),
+			checkpointName: backupStatus.CheckpointName,
+		}
+	default:
+		log.Log.Infof("Backup completed successfully %+v", backupStatus)
+		syncInfo = &SyncInfo{
+			event:          backupCompletedEvent,
+			reason:         backupCompleted,
 			checkpointName: backupStatus.CheckpointName,
 		}
 	}
 
 	log.Log.Infof("Backup status completed %+v", backupStatus)
-	return &SyncInfo{
-		event:          backupCompletedEvent,
-		reason:         backupCompletedMsg,
-		checkpointName: backupStatus.CheckpointName,
-	}
+	return syncInfo
 }
 
-func (ctrl *VMBackupController) cleanupSource(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) *SyncInfo {
+func backupNotCompleted(vmi *v1.VirtualMachineInstance) bool {
+	return vmi != nil && vmi.Status.ChangedBlockTracking != nil && vmi.Status.ChangedBlockTracking.BackupStatus != nil && !vmi.Status.ChangedBlockTracking.BackupStatus.Completed
+}
+
+func isAbortInitiated(backup *backupv1.VirtualMachineBackup) bool {
+	if backup.Status == nil || backup.Status.Conditions == nil {
+		return false
+	}
+	for _, cond := range backup.Status.Conditions {
+		if cond.Reason == string(backupv1.BackupAbortInProgress) {
+			return true
+		}
+	}
+	return false
+}
+
+func (ctrl *VMBackupController) abortBackup(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) *SyncInfo {
 	if vmi == nil {
+		log.Log.Infof("VMI is nil, cannot send abort command for backup %s but marking as aborted", backup.Name)
+		return &SyncInfo{
+			event:  backupAbortedEvent,
+			reason: "Backup aborted due to deletion before completion (VMI no longer exists)",
+		}
+	}
+
+	backupStatus := vmi.Status.ChangedBlockTracking
+	if backupStatus == nil || backupStatus.BackupStatus == nil {
 		return nil
 	}
 
-	if vmi.Status.ChangedBlockTracking != nil && vmi.Status.ChangedBlockTracking.BackupStatus != nil && !vmi.Status.ChangedBlockTracking.BackupStatus.Completed {
+	// Check if abort is already in progress or completed
+	if backupStatus.BackupStatus.AbortStatus != nil {
+		switch *backupStatus.BackupStatus.AbortStatus {
+		case string(backupv1.BackupAbortInProgress):
+			log.Log.V(3).Infof("Backup abort is in progress, waiting for completion")
+			return nil
+		case string(backupv1.BackupAbortSucceeded):
+			log.Log.Infof("Backup abort succeeded")
+			return &SyncInfo{
+				event:  backupAbortedEvent,
+				reason: string(backupv1.BackupAbortSucceeded),
+			}
+		case string(backupv1.BackupAbortFailed):
+			log.Log.Warningf("Backup abort failed")
+			return &SyncInfo{
+				event:  backupAbortedEvent,
+				reason: string(backupv1.BackupAbortFailed),
+			}
+		}
+	}
+
+	// Check if backup is still in progress and needs to be aborted
+	if !backupStatus.BackupStatus.Completed {
+		if isAbortInitiated(backup) {
+			log.Log.V(3).Infof("Abort already initiated for backup %s, waiting for status update", backup.Name)
+			return nil
+		}
+
 		log.Log.Infof("Backup deleted before completion, aborting running backup")
 		backupOptions := backupv1.BackupOptions{
 			BackupName:      backup.Name,
@@ -746,19 +694,61 @@ func (ctrl *VMBackupController) cleanupSource(backup *backupv1.VirtualMachineBac
 			log.Log.Infof("Error sending abort backup command: %s", err)
 			return syncInfoError(err)
 		}
-		// TODO: send abort to backup
-	} else {
-		if backup.Spec.Mode == nil || *backup.Spec.Mode == backupv1.PushMode {
-			if ctrl.backupTargetPVCAttached(vmi, *backup.Spec.PvcName) {
-				return ctrl.detachBackupTargetPVC(vmi, *backup.Spec.PvcName)
-			}
-		}
-		if syncInfo := ctrl.removeSourceBackupInProgress(vmi); syncInfo != nil {
-			return syncInfo
+		log.Log.Infof("Abort command sent for backup %s, updating backup status", backup.Name)
+		return &SyncInfo{
+			event:  backupAbortedEvent,
+			reason: string(backupv1.BackupAbortInProgress),
 		}
 	}
 
 	return nil
+}
+
+func (ctrl *VMBackupController) deletionCleanup(backup *backupv1.VirtualMachineBackup) *SyncInfo {
+	vmi, _, err := ctrl.getVMI(backup)
+	if err != nil {
+		return syncInfoError(err)
+	}
+	// Check if backup is still in progress and needs to be aborted
+	if backupNotCompleted(vmi) && !IsBackupDone(backup.Status) {
+		log.Log.Warningf("Backup deleted before completion, aborting running backup %s", backup.Name)
+		syncInfo := ctrl.abortBackup(backup, vmi)
+		if syncInfo != nil {
+			return syncInfo
+		}
+		return nil
+	}
+	_, syncInfo := ctrl.cleanup(backup, vmi)
+	if syncInfo != nil {
+		return syncInfo
+	}
+	return nil
+}
+
+func isPushMode(backup *backupv1.VirtualMachineBackup) bool {
+	return backup.Spec.Mode == nil || *backup.Spec.Mode == backupv1.PushMode
+}
+
+func (ctrl *VMBackupController) cleanup(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) (bool, *SyncInfo) {
+	if isPushMode(backup) && !ctrl.backupTargetPVCDetached(vmi, backup.Spec.PvcName) {
+		return false, ctrl.detachBackupTargetPVC(vmi, *backup.Spec.PvcName)
+	}
+
+	if isBackupDeleting(backup) || IsBackupDone(backup.Status) {
+		if syncInfo := ctrl.removeSourceBackupInProgress(vmi); syncInfo != nil {
+			return false, syncInfo
+		}
+	}
+
+	log.Log.Infof("backup %s cleanup", backup.Name)
+	if isBackupDeleting(backup) {
+		log.Log.Infof("removing backup %s finalizer", backup.Name)
+		if syncInfo := ctrl.removeBackupFinalizer(backup); syncInfo != nil {
+			return false, syncInfo
+		}
+	}
+
+	return true, nil
 }
 
 func isBackupInitializing(status *backupv1.VirtualMachineBackupStatus) bool {

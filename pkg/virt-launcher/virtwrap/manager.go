@@ -1546,12 +1546,12 @@ func (l *LibvirtDomainManager) allocateHotplugPorts(
 
 func getSourceFile(disk api.Disk) string {
 	source := disk.Source
-	if source.DataStore != nil {
-		source = *source.DataStore.Source
-	}
+	// if source.DataStore != nil {
+	// 	source = *source.DataStore.Source
+	// }
 	file := source.File
 	if source.File == "" {
-		file = disk.Source.Dev
+		file = source.Dev
 	}
 	return file
 }
@@ -1723,7 +1723,11 @@ func shouldExpandOnline(dom cli.VirDomain, disk api.Disk) bool {
 	}
 	blockInfo, err := dom.GetBlockInfo(getSourceFile(disk), 0)
 	if err != nil {
-		log.DefaultLogger().Reason(err).Error("Failed to get block info")
+		diskAlias := converter.GetVolumeNameByDisk(disk)
+		log.DefaultLogger().Reason(err).Errorf("Failed to get block info for disk: %s, sourceFile: %s", diskAlias, getSourceFile(disk))
+		if disk.Source.DataStore != nil {
+			log.DefaultLogger().Infof("Disk data store %+v", disk.Source.DataStore.Source)
+		}
 		return false
 	}
 	guestSize := blockInfo.Capacity

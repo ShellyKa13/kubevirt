@@ -2201,6 +2201,9 @@ func newDeviceNamer(volumeStatuses []v1.VolumeStatus, disks []v1.Disk) map[strin
 }
 
 func GetVolumeNameByDisk(disk api.Disk) string {
+	if disk.Alias == nil {
+		return ""
+	}
 	return disk.Alias.GetName()
 }
 

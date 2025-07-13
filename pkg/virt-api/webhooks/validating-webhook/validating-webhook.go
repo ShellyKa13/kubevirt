@@ -91,7 +91,7 @@ func ServeVMRestores(resp http.ResponseWriter, req *http.Request, clusterConfig 
 }
 
 func ServeVMBackups(resp http.ResponseWriter, req *http.Request, clusterConfig *virtconfig.ClusterConfig, virtCli kubecli.KubevirtClient, informers *webhooks.Informers) {
-	validating_webhooks.Serve(resp, req, storageAdmitters.NewVMBackupAdmitter(clusterConfig, virtCli, informers.VMBackupInformer))
+	validating_webhooks.Serve(resp, req, storageadmitters.NewVMBackupAdmitter(clusterConfig, virtCli, informers.VMBackupInformer))
 }
 
 func ServeVMExports(resp http.ResponseWriter, req *http.Request, clusterConfig *virtconfig.ClusterConfig) {

@@ -437,6 +437,7 @@ type BackupMetadata struct {
 	Failed         bool         `xml:"failed,omitempty"`
 	BackupMsg      string       `xml:"backupMsg,omitempty"`
 	AbortStatus    string       `xml:"abortStatus,omitempty"`
+	BackupPath     string       `xml:"backupPath,omitempty"`
 }
 
 type GracePeriodMetadata struct {

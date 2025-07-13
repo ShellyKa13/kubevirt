@@ -84,6 +84,7 @@ func (admitter *VMBackupAdmitter) Admit(ctx context.Context, ar *admissionv1.Adm
 		}
 		sourceField := k8sfield.NewPath("spec", "source")
 
+		// source is required until VirtualMachineBackupTracker is introduced
 		if vmBackup.Spec.Source == nil {
 			causes = append(causes, metav1.StatusCause{
 				Type:    metav1.CauseTypeFieldValueNotFound,
@@ -177,6 +178,14 @@ func validateSource(source *corev1.TypedLocalObjectReference, causes []metav1.St
 		})
 		return causes
 	}
+	if source.Name == "" {
+		causes = append(causes, metav1.StatusCause{
+			Type:    metav1.CauseTypeFieldValueInvalid,
+			Message: "name is required",
+			Field:   sourceField.Child("name").String(),
+		})
+		return causes
+	}
 	return causes
 }
 
@@ -200,7 +209,7 @@ func validateBackupMode(vmBackup *backupv1.VirtualMachineBackup, causes []metav1
 }
 
 func validatePVCNameExists(vmBackup *backupv1.VirtualMachineBackup, causes []metav1.StatusCause) []metav1.StatusCause {
-	if vmBackup.Spec.PvcName == nil {
+	if vmBackup.Spec.PvcName == nil || *vmBackup.Spec.PvcName == "" {
 		pvcNameField := k8sfield.NewPath("spec", "pvcName")
 		causes = append(causes, metav1.StatusCause{
 			Type:    metav1.CauseTypeFieldValueInvalid,

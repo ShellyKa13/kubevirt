@@ -51,7 +51,7 @@ func backupTimeFormatted(time *metav1.Time) string {
 	return time.UTC().Format(backupTimeXMLFormat)
 }
 
-func (l *LibvirtDomainManager) initializeBackupMetadata(backupOptions *backupv1.BackupOptions) (bool, error) {
+func (l *LibvirtDomainManager) initializeBackupMetadata(backupOptions *backupv1.BackupOptions, vmiName string) (bool, error) {
 	backupMetadata, exists := l.metadataCache.Backup.Load()
 	// Same start time is a unique indication for the backup
 	// since backupname can be reused
@@ -65,7 +65,7 @@ func (l *LibvirtDomainManager) initializeBackupMetadata(backupOptions *backupv1.
 				backupOptions.BackupName, *backupMetadata.StartTimestamp, *backupMetadata.EndTimestamp, backupMetadata.Completed, backupMetadata.Failed, backupMetadata.AbortStatus)
 		}
 	} else if exists {
-		if backupMetadata.EndTimestamp != nil {
+		if backupMetadata.EndTimestamp == nil {
 			// another backup already exists and have not completed yet
 			return false, fmt.Errorf("backup %s already in progress, need to wait for completion", backupMetadata.Name)
 		}
@@ -76,6 +76,9 @@ func (l *LibvirtDomainManager) initializeBackupMetadata(backupOptions *backupv1.
 		StartTimestamp: backupOptions.BackupStartTime,
 		CheckpointName: checkpointName(backupOptions.BackupName, backupTimeFormatted(backupOptions.BackupStartTime)),
 		SkipQuiesce:    backupOptions.SkipQuiesce,
+	}
+	if backupOptions.PushPath != nil {
+		b.BackupPath = getBackupPath(backupOptions, vmiName)
 	}
 	l.metadataCache.Backup.Store(b)
 	log.Log.V(3).Infof("initialize backup metadata: %v", b)
@@ -88,7 +91,7 @@ func (l *LibvirtDomainManager) backupVirtualMachine(vmi *v1.VirtualMachineInstan
 	if l.migrationInProgress() {
 		return fmt.Errorf("Failed to do backup, VMI is currently during migration")
 	}
-	inProgress, err := l.initializeBackupMetadata(backupOptions)
+	inProgress, err := l.initializeBackupMetadata(backupOptions, vmi.Name)
 	if err != nil {
 		log.Log.Object(vmi).Warning(err.Error())
 		return err
@@ -236,25 +239,7 @@ func IsChangedBlockTrackingInitializing(vmi *v1.VirtualMachineInstance) bool {
 
 // logBackupInfo logs the same backup info as `virsh -r domjobinfo`
 func logBackupInfo(logger *log.FilteredLogger, backupName string, info *libvirt.DomainJobInfo) {
-	bToMiB := func(bytes uint64) uint64 {
-		fmt.Println(bytes)
-		return bytes / 1024 / 1024
-	}
-
-	bpsToMbps := func(bytes uint64) uint64 {
-		fmt.Println(bytes)
-		return bytes * 8 / 1000000
-	}
-
-	logger.V(2).Info(fmt.Sprintf(`Backup info for %s: Type: %v, operation: %v, TimeElapsed:%dms DataProcessed:%dMiB DataRemaining:%dMiB DataTotal:%dMiB `+
-		`MemoryProcessed:%dMiB MemoryRemaining:%dMiB MemoryTotal:%dMiB MemoryBandwidth:%dMbps DirtyRate:%dMbps `+
-		`Iteration:%d PostcopyRequests:%d ConstantPages:%d NormalPages:%d NormalData:%dMiB ExpectedDowntime:%dms `+
-		`DiskMbps:%d`,
-		backupName, info.Type, info.Operation, info.TimeElapsed, bToMiB(info.DataProcessed), bToMiB(info.DataRemaining), bToMiB(info.DataTotal),
-		bToMiB(info.MemProcessed), bToMiB(info.MemRemaining), bToMiB(info.MemTotal), bpsToMbps(info.MemBps), bpsToMbps(info.MemDirtyRate*info.MemPageSize),
-		info.MemIteration, info.MemPostcopyReqs, info.MemConstant, info.MemNormal, bToMiB(info.MemNormalBytes), info.Downtime,
-		bpsToMbps(info.DiskBps),
-	))
+	logger.V(2).Infof("Backup %s info %+v", backupName, info)
 }
 
 func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEventJobCompleted, metadataCache *metadata.Cache) {
@@ -273,6 +258,10 @@ func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEv
 			logger.Reason(err).Error("Failed to get final job stats for completed backup.")
 		} else if finalStats != nil {
 			event.Info.Type = finalStats.Type
+			if finalStats.ErrorMessageSet {
+				event.Info.ErrorMessageSet = true
+				event.Info.ErrorMessage = finalStats.ErrorMessage
+			}
 			logBackupInfo(logger, backupName, finalStats)
 		}
 		if !backupMetadata.SkipQuiesce && backupMetadata.BackupMsg != freezeFailedMsg {
@@ -291,17 +280,30 @@ func HandleBackupJobCompletedEvent(domain cli.VirDomain, event *libvirt.DomainEv
 		logger.Info("Backup has been completed successfully")
 	case libvirt.DOMAIN_JOB_FAILED:
 		isFailed = true
-		backupMsg = fmt.Sprintf("Backup job failed. Libvirt job result: %d", event.Info.Type)
-		logger.Errorf("Backup job failed: %s", backupMsg)
+		backupPath := backupMetadata.BackupPath
+		if backupPath != "" {
+			logger.Infof("Cleaning up failed backup directory: %s", backupPath)
+			if err := os.RemoveAll(backupPath); err != nil {
+				logger.Reason(err).Error("failed to clean up backup directory")
+			}
+		}
+		backupMsg = fmt.Sprintf("Libvirt job result: %d", event.Info.Type)
+		if event.Info.ErrorMessageSet {
+			backupMsg = fmt.Sprintf("%s, error message: %s", backupMsg, event.Info.ErrorMessage)
+		}
+		logger.Error(backupMsg)
 	case libvirt.DOMAIN_JOB_CANCELLED:
 		isFailed = true
 		abortStatus = backupv1.BackupAbortSucceeded
 		backupMsg = fmt.Sprintf("Backup job was cancelled. Libvirt job result: %d", event.Info.Type)
-		logger.Info("Backup was cancelled")
+		if event.Info.ErrorMessageSet {
+			backupMsg = fmt.Sprintf("%s, error message: %s", backupMsg, event.Info.ErrorMessage)
+		}
+		logger.Warning(backupMsg)
 	default:
 		isFailed = true
 		backupMsg = fmt.Sprintf("Backup job ended with unknown result: %d", event.Info.Type)
-		logger.Warningf("Backup job ended with unexpected result: %d", event.Info.Type)
+		logger.Warning(backupMsg)
 	}
 
 	metadataCache.Backup.WithSafeBlock(func(backupMetadata *api.BackupMetadata, exists bool) {
@@ -328,14 +330,18 @@ func (l *LibvirtDomainManager) backupVirtualMachineAbort(vmi *v1.VirtualMachineI
 	log.Log.Infof("backup abort called")
 	backupMetadata, exists := l.metadataCache.Backup.Load()
 	if exists {
-		if backupMetadata.StartTimestamp == backupOptions.BackupStartTime && backupMetadata.EndTimestamp != nil {
+		if backupMetadata.StartTimestamp == backupOptions.BackupStartTime &&
+			(backupMetadata.Completed || backupMetadata.EndTimestamp != nil) {
 			log.Log.Infof("backup %s already completed, abort cancelled", backupOptions.BackupName)
 			return nil
 		}
 		if backupMetadata.StartTimestamp != backupOptions.BackupStartTime {
 			log.Log.Infof("abort was called for backup %s that started at: %v, but the latest backup is %s that started at %v. can't abort", backupOptions.BackupName, backupOptions.BackupStartTime, backupMetadata.Name, backupMetadata.StartTimestamp)
 			return nil
-
+		}
+		if backupMetadata.AbortStatus == string(backupv1.BackupAbortInProgress) {
+			log.Log.V(3).Infof("abort for backup %s is already in progress", backupOptions.BackupName)
+			return nil
 		}
 	}
 
