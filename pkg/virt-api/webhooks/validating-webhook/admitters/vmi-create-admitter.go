@@ -184,6 +184,15 @@ func ValidateVirtualMachineInstancePerArch(field *k8sfield.Path, spec *v1.Virtua
 	return causes
 }
 
+func validateVMISpecStorageFields(field *k8sfield.Path, spec *v1.VirtualMachineInstanceSpec, config *virtconfig.ClusterConfig) []metav1.StatusCause {
+	var causes []metav1.StatusCause
+	causes = append(causes, validateBootOrder(field, spec, config)...)
+	causes = append(causes, validateVolumes(field.Child("volumes"), spec.Volumes, config)...)
+	causes = append(causes, validateContainerDisks(field, spec)...)
+	causes = append(causes, validateDisks(field.Child("disks"), spec.Domain.Devices.Disks)...)
+	return causes
+}
+
 func ValidateVirtualMachineInstanceSpec(field *k8sfield.Path, spec *v1.VirtualMachineInstanceSpec, config *virtconfig.ClusterConfig) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 
@@ -214,7 +223,7 @@ func ValidateVirtualMachineInstanceSpec(field *k8sfield.Path, spec *v1.VirtualMa
 
 	causes = append(causes, draadmitter.ValidateCreation(field, spec, config)...)
 
-	causes = append(causes, validateBootOrder(field, spec, config)...)
+	causes = append(causes, validateVMISpecStorageFields(field, spec, config)...)
 
 	causes = append(causes, validateInputDevices(field, spec)...)
 	causes = append(causes, validateIOThreadsPolicy(field, spec)...)
@@ -226,9 +235,7 @@ func ValidateVirtualMachineInstanceSpec(field *k8sfield.Path, spec *v1.VirtualMa
 		causes = appendStatusCauseForProbeNotAllowedWithNoPodNetworkPresent(field.Child("livenessProbe"), spec.LivenessProbe, causes)
 	}
 
-	causes = append(causes, validateDomainSpec(field.Child("domain"), &spec.Domain)...)
-	causes = append(causes, validateVolumes(field.Child("volumes"), spec.Volumes, config)...)
-	causes = append(causes, validateContainerDisks(field, spec)...)
+	causes = append(causes, validateDomainFirmware(field.Child("domain"), &spec.Domain)...)
 
 	causes = append(causes, validateAccessCredentials(field.Child("accessCredentials"), spec.AccessCredentials, spec.Volumes)...)
 
@@ -1505,10 +1512,8 @@ func smmFeatureEnabled(features *v1.Features) bool {
 	return features != nil && features.SMM != nil && (features.SMM.Enabled == nil || *features.SMM.Enabled)
 }
 
-func validateDomainSpec(field *k8sfield.Path, spec *v1.DomainSpec) []metav1.StatusCause {
+func validateDomainFirmware(field *k8sfield.Path, spec *v1.DomainSpec) []metav1.StatusCause {
 	var causes []metav1.StatusCause
-
-	causes = append(causes, validateDevices(field.Child("devices"), &spec.Devices)...)
 	causes = append(causes, validateFirmware(field.Child("firmware"), spec.Firmware)...)
 
 	if secureBootEnabled(spec.Firmware) && !smmFeatureEnabled(spec.Features) {

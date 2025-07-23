@@ -434,14 +434,14 @@ func (admitter *VMsAdmitter) validateVolumeRequests(ctx context.Context, vm *v1.
 	}
 
 	// this simulates injecting the changes into the VMI template and validates it will work.
-	causes := ValidateVirtualMachineInstanceSpec(k8sfield.NewPath("spec", "template", "spec"), newSpec, admitter.ClusterConfig)
+	causes := validateVMISpecStorageFields(k8sfield.NewPath("spec", "template", "spec"), newSpec, admitter.ClusterConfig)
 	if len(causes) > 0 {
 		return causes, nil
 	}
 
 	// This simulates injecting the changes directly into the vmi, if the vmi exists
 	if vmiExists {
-		causes := ValidateVirtualMachineInstanceSpec(k8sfield.NewPath("spec", "template", "spec"), &vmi.Spec, admitter.ClusterConfig)
+		causes := validateVMISpecStorageFields(k8sfield.NewPath("spec"), &vmi.Spec, admitter.ClusterConfig)
 		if len(causes) > 0 {
 			return causes, nil
 		}
