@@ -21,6 +21,7 @@ package admitters
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -214,7 +215,7 @@ func ValidateVirtualMachineInstanceSpec(field *k8sfield.Path, spec *v1.VirtualMa
 
 	causes = append(causes, draadmitter.ValidateCreation(field, spec, config)...)
 
-	causes = append(causes, validateVMISpecStorageFields(field, spec, config)...)
+	causes = append(causes, storageAdmitters.ValidateVMISpecStorageFields(field, spec, config)...)
 
 	causes = append(causes, validateInputDevices(field, spec)...)
 	causes = append(causes, validateIOThreadsPolicy(field, spec)...)
@@ -1899,6 +1900,7 @@ func validateVolumes(field *k8sfield.Path, volumes []v1.Volume, config *virtconf
 
 	return causes
 }
+
 // Rejects kernel boot defined with initrd/kernel path but without an image
 func validateKernelBoot(field *k8sfield.Path, kernelBoot *v1.KernelBoot) []metav1.StatusCause {
 	var causes []metav1.StatusCause

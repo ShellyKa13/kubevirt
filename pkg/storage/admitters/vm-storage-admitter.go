@@ -58,6 +58,12 @@ func (a Admitter) AdmitStatus() []metav1.StatusCause {
 	if len(causes) > 0 {
 		return causes
 	}
+
+	volumeCauses := a.validateVolumeRequests()
+	if len(volumeCauses) > 0 {
+		return volumeCauses
+	}
+
 	return causes
 }
 
@@ -70,6 +76,11 @@ func (a Admitter) Admit() ([]metav1.StatusCause, error) {
 	causes = a.AdmitStatus()
 	if len(causes) > 0 {
 		return causes, err
+	}
+
+	volumeCauses := a.validateVolumeRequests()
+	if len(volumeCauses) > 0 {
+		return volumeCauses, nil
 	}
 
 	return causes, nil
