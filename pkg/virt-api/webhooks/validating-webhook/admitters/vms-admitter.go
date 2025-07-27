@@ -369,7 +369,7 @@ func (admitter *VMsAdmitter) validateVolumeRequests(ctx context.Context, vm *v1.
 			}
 
 			// Validate the disk is configured properly
-			invalidDiskStatusCause := validateHotplugDiskConfiguration(
+			invalidDiskStatusCause := storageAdmitters.ValidateHotplugDiskConfiguration(
 				volumeRequest.AddVolumeOptions.Disk, name,
 				"AddVolume request",
 				k8sfield.NewPath("Status", "volumeRequests").String(),
@@ -457,51 +457,4 @@ func (admitter *VMsAdmitter) validateVolumeRequests(ctx context.Context, vm *v1.
 
 	return nil, nil
 
-}
-
-func validateHotplugDiskConfiguration(disk *v1.Disk, name, messagePrefix, field string) []metav1.StatusCause {
-	// Validate the disk is configured properly
-	if disk == nil {
-		return []metav1.StatusCause{{
-			Type:    metav1.CauseTypeFieldValueInvalid,
-			Message: fmt.Sprintf("%s for [%s] requires the disk field to be set.", messagePrefix, name),
-			Field:   field,
-		}}
-	}
-
-	bus := getDiskBus(*disk)
-	switch {
-	case disk.DiskDevice.Disk != nil:
-		if bus != v1.DiskBusSCSI && bus != v1.DiskBusVirtio {
-			return []metav1.StatusCause{{
-				Type:    metav1.CauseTypeFieldValueInvalid,
-				Message: fmt.Sprintf("%s for disk [%s] requires bus to be 'scsi' or 'virtio'. [%s] is not permitted.", messagePrefix, name, bus),
-				Field:   field,
-			}}
-		}
-	case disk.DiskDevice.LUN != nil:
-		if bus != v1.DiskBusSCSI {
-			return []metav1.StatusCause{{
-				Type:    metav1.CauseTypeFieldValueInvalid,
-				Message: fmt.Sprintf("%s for LUN [%s] requires bus to be 'scsi'. [%s] is not permitted.", messagePrefix, name, bus),
-				Field:   field,
-			}}
-		}
-	default:
-		return []metav1.StatusCause{{
-			Type:    metav1.CauseTypeFieldValueInvalid,
-			Message: fmt.Sprintf("%s for [%s] requires diskDevice of type 'disk' or 'lun' to be used.", messagePrefix, name),
-			Field:   field,
-		}}
-	}
-
-	if disk.DedicatedIOThread != nil && *disk.DedicatedIOThread && bus != v1.DiskBusVirtio {
-		return []metav1.StatusCause{{
-			Type:    metav1.CauseTypeFieldValueInvalid,
-			Message: fmt.Sprintf("%s for [%s] requires virtio bus for IOThreads.", messagePrefix, name),
-			Field:   field,
-		}}
-	}
-
-	return nil
 }
