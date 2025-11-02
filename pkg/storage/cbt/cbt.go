@@ -47,11 +47,13 @@ func CBTState(status *v1.ChangedBlockTrackingStatus) v1.ChangedBlockTrackingStat
 }
 
 func SetCBTState(status **v1.ChangedBlockTrackingStatus, state v1.ChangedBlockTrackingState) {
-	if state == v1.ChangedBlockTrackingUndefined {
-		(*status).State = v1.ChangedBlockTrackingUndefined
+	if status == nil {
 		return
 	}
-	*status = &v1.ChangedBlockTrackingStatus{State: state}
+	if *status == nil {
+		*status = &v1.ChangedBlockTrackingStatus{}
+	}
+	(*status).State = state
 }
 
 func CompareCBTState(status *v1.ChangedBlockTrackingStatus, state v1.ChangedBlockTrackingState) bool {
