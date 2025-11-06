@@ -239,64 +239,86 @@ func syncInfoError(err error) *SyncInfo {
 
 func (ctrl *VMBackupController) execute(key string) error {
 	logger := log.Log.With("VirtualMachineBackup", key)
-	logger.V(4).Infof("Processing VirtualMachineBackup")
+	logger.Infof("[BACKUP-DEBUG] Processing VirtualMachineBackup %s", key)
 	storeObj, exists, err := ctrl.backupInformer.GetStore().GetByKey(key)
 	if err != nil {
+		logger.Errorf("[BACKUP-DEBUG] Error getting backup from store: %v", err)
 		return err
 	}
 	if !exists {
+		logger.Infof("[BACKUP-DEBUG] Backup %s no longer exists in store", key)
 		return nil
 	}
 
 	backup, ok := storeObj.(*backupv1.VirtualMachineBackup)
 	if !ok {
+		logger.Errorf("[BACKUP-DEBUG] Unexpected resource type: %T", storeObj)
 		return fmt.Errorf("unexpected resource %+v", storeObj)
 	}
 
+	logger.Infof("[BACKUP-DEBUG] Calling sync for backup %s", key)
 	syncInfo := ctrl.sync(backup)
 	if syncInfo != nil && syncInfo.err != nil {
-		logger.Infof("sync error :%+v", syncInfo.err)
+		logger.Infof("[BACKUP-DEBUG] sync returned error: %+v", syncInfo.err)
 		return syncInfo.err
 	}
+	if syncInfo != nil {
+		logger.Infof("[BACKUP-DEBUG] sync returned syncInfo: event=%s, reason=%s, checkpointName=%s",
+			syncInfo.event, syncInfo.reason, syncInfo.checkpointName)
+	} else {
+		logger.Infof("[BACKUP-DEBUG] sync returned nil syncInfo")
+	}
 
+	logger.Infof("[BACKUP-DEBUG] Updating status for backup %s", key)
 	err = ctrl.updateStatus(backup, syncInfo, logger)
 	if err != nil {
-		logger.Reason(err).Error("Updating the VirtualMachineBackup status failed.")
+		logger.Reason(err).Errorf("[BACKUP-DEBUG] Updating the VirtualMachineBackup status failed.")
 		return err
 	}
 
+	logger.Infof("[BACKUP-DEBUG] Successfully processed backup %s", key)
 	return nil
 }
 
 func (ctrl *VMBackupController) sync(backup *backupv1.VirtualMachineBackup) *SyncInfo {
 	sourceName := getSourceName(backup)
+	log.Log.Infof("[BACKUP-DEBUG] Starting sync for backup %s/%s, source: %s", backup.Namespace, backup.Name, sourceName)
 	if sourceName == "" {
+		log.Log.Errorf("[BACKUP-DEBUG] Source name is empty for backup %s/%s", backup.Namespace, backup.Name)
 		return syncInfoError(fmt.Errorf("source name is empty"))
 	}
 
 	if isBackupDeleting(backup) {
+		log.Log.Infof("[BACKUP-DEBUG] Backup %s/%s is being deleted", backup.Namespace, backup.Name)
 		return ctrl.deletionCleanup(backup)
 	}
 
+	log.Log.Infof("[BACKUP-DEBUG] Verifying backup source for %s/%s", backup.Namespace, backup.Name)
 	vmi, syncInfo := ctrl.verifyBackupSource(backup)
 	if syncInfo != nil {
+		log.Log.Infof("[BACKUP-DEBUG] verifyBackupSource returned syncInfo: %+v", syncInfo)
 		return syncInfo
 	}
 
-	log.Log.Infof("backup UID %s", backup.UID)
+	log.Log.Infof("[BACKUP-DEBUG] backup UID %s, isBackupInitializing: %v, vmi: %v", backup.UID, isBackupInitializing(backup.Status), vmi != nil)
 	if !isBackupInitializing(backup.Status) || vmi == nil {
+		log.Log.Infof("[BACKUP-DEBUG] Checking backup completion for %s/%s", backup.Namespace, backup.Name)
 		return ctrl.checkBackupCompletion(backup, vmi)
 	}
 	if backup.Status != nil {
-		log.Log.Infof("backup conditions: %+v", backup.Status.Conditions)
+		log.Log.Infof("[BACKUP-DEBUG] backup conditions: %+v", backup.Status.Conditions)
 	}
 
+	log.Log.Infof("[BACKUP-DEBUG] Adding backup finalizer for %s/%s", backup.Namespace, backup.Name)
 	backup, err := ctrl.addBackupFinalizer(backup)
 	if err != nil {
+		log.Log.Errorf("[BACKUP-DEBUG] Failed to add finalizer: %v", err)
 		return syncInfoError(err)
 	}
 
+	log.Log.Infof("[BACKUP-DEBUG] Updating source backup in progress for VMI %s/%s", vmi.Namespace, vmi.Name)
 	if err := ctrl.updateSourceBackupInProgress(vmi, backup.Name); err != nil {
+		log.Log.Errorf("[BACKUP-DEBUG] Failed to update source backup in progress: %v", err)
 		return syncInfoError(err)
 	}
 	backupOptions := backupv1.BackupOptions{
@@ -308,30 +330,47 @@ func (ctrl *VMBackupController) sync(backup *backupv1.VirtualMachineBackup) *Syn
 	if backup.Spec.Mode == nil {
 		backup.Spec.Mode = pointer.P(backupv1.PushMode)
 	}
+	log.Log.Infof("[BACKUP-DEBUG] Backup mode: %s", *backup.Spec.Mode)
 	switch *backup.Spec.Mode {
 	case backupv1.PushMode:
 		pvcName := backup.Spec.PvcName
+		if pvcName != nil {
+			log.Log.Infof("[BACKUP-DEBUG] Push mode: verifying target PVC %s", *pvcName)
+		} else {
+			log.Log.Errorf("[BACKUP-DEBUG] Backup target PVC name is nil")
+		}
 		syncInfo = ctrl.verifyBackupTargetPVC(pvcName, backup.Namespace)
 		if syncInfo != nil {
+			log.Log.Infof("[BACKUP-DEBUG] verifyBackupTargetPVC returned syncInfo: %+v", syncInfo)
 			return syncInfo
 		}
 
-		if !ctrl.backupTargetPVCAttached(vmi) {
+		attached := ctrl.backupTargetPVCAttached(vmi)
+		log.Log.Infof("[BACKUP-DEBUG] Backup target PVC attached: %v", attached)
+		if !attached {
+			pvcNameForLog := "nil"
+			if pvcName != nil {
+				pvcNameForLog = *pvcName
+			}
+			log.Log.Infof("[BACKUP-DEBUG] Attaching backup target PVC %s to VMI %s/%s", pvcNameForLog, vmi.Namespace, vmi.Name)
 			return ctrl.attachBackupTargetPVC(vmi, *pvcName)
 		}
 		backupOptions.Mode = backupv1.PushMode
-		backupOptions.PushPath = pointer.P(hotplugdisk.GetVolumeMountDir(*pvcName))
+		// Use the utility volume name (backup-target-pvc), not the PVC name, for the mount path
+		backupOptions.PushPath = pointer.P(hotplugdisk.GetVolumeMountDir(backupTargetPVC))
+		log.Log.Infof("[BACKUP-DEBUG] Backup target PVC is attached, push path: %s (volume name: %s)", *backupOptions.PushPath, backupTargetPVC)
 	default:
+		log.Log.Errorf("[BACKUP-DEBUG] Invalid backup mode: %s", *backup.Spec.Mode)
 		return syncInfoError(fmt.Errorf("invalid backup mode"))
 	}
 
-	log.Log.Object(vmi).Info("Sending Start backup command")
+	log.Log.Object(vmi).Infof("[BACKUP-DEBUG] Sending Start backup command with options: %+v", backupOptions)
 	err = ctrl.client.VirtualMachineInstance(vmi.Namespace).Backup(context.Background(), vmi.Name, &backupOptions)
 	if err != nil {
-		log.Log.Infof("Error sending Start backup command: %s", err)
+		log.Log.Errorf("[BACKUP-DEBUG] Error sending Start backup command: %s", err)
 		return syncInfoError(err)
 	}
-	log.Log.Object(vmi).Info("Started backup command")
+	log.Log.Object(vmi).Info("[BACKUP-DEBUG] Started backup command successfully")
 
 	return &SyncInfo{
 		event:  backupInitiatedEvent,
@@ -475,34 +514,43 @@ func (ctrl *VMBackupController) getVMI(backup *backupv1.VirtualMachineBackup) (*
 func (ctrl *VMBackupController) verifyBackupSource(backup *backupv1.VirtualMachineBackup) (*v1.VirtualMachineInstance, *SyncInfo) {
 	sourceName := getSourceName(backup)
 	objKey := cacheKeyFunc(backup.Namespace, sourceName)
+	log.Log.Infof("[BACKUP-DEBUG] verifyBackupSource: looking for VM %s", objKey)
 	_, exists, err := ctrl.vmStore.GetByKey(objKey)
 	if err != nil {
+		log.Log.Errorf("[BACKUP-DEBUG] Error getting VM from store: %v", err)
 		return nil, syncInfoError(err)
 	}
 
 	if !exists {
+		log.Log.Errorf("[BACKUP-DEBUG] VM %s/%s doesn't exist", backup.Namespace, sourceName)
 		return nil, &SyncInfo{
 			event:  backupSourceDoesntExist,
 			reason: fmt.Sprintf("VM %s/%s doesnt exist", backup.Namespace, sourceName),
 		}
 	}
+	log.Log.Infof("[BACKUP-DEBUG] VM exists, checking for VMI %s", objKey)
 	vmi, exists, err := ctrl.getVMI(backup)
 	if err != nil {
+		log.Log.Errorf("[BACKUP-DEBUG] Error getting VMI from store: %v", err)
 		return nil, syncInfoError(err)
 	}
 	if !exists {
+		log.Log.Errorf("[BACKUP-DEBUG] VMI %s/%s doesn't exist (VM not running)", backup.Namespace, sourceName)
 		return nil, &SyncInfo{
 			event:  backupSourceNotRunning,
 			reason: fmt.Sprintf("vm %s is not running, can not do backup", sourceName),
 		}
 	}
+	log.Log.Infof("[BACKUP-DEBUG] VMI exists with %d volumes", len(vmi.Spec.Volumes))
 	if len(vmi.Spec.Volumes) == 0 {
+		log.Log.Errorf("[BACKUP-DEBUG] VMI %s/%s has no volumes to backup", backup.Namespace, sourceName)
 		return nil, &SyncInfo{
 			event:  backupSourceNoVolumesToBackup,
 			reason: fmt.Sprintf("vm %s has no volumes to backup", sourceName),
 		}
 
 	}
+	log.Log.Infof("[BACKUP-DEBUG] verifyBackupSource successful for %s/%s", backup.Namespace, sourceName)
 	return vmi, nil
 }
 
@@ -512,24 +560,29 @@ func (ctrl *VMBackupController) removeSourceBackupInProgress(vmi *v1.VirtualMach
 	}
 
 	patch, err := patch.New(
-		patch.WithRemove("/status/backupStatus"),
+		patch.WithRemove("/status/changedBlockTracking/backupStatus"),
 	).GeneratePayload()
 	if err != nil {
 		return syncInfoError(err)
 	}
 
-	log.Log.Object(vmi).V(4).Infof("Patching VMI: %s", patch)
+	log.Log.Object(vmi).Infof("[BACKUP-DEBUG] Removing changedBlockTracking/backupStatus with patch: %s", patch)
 	_, err = ctrl.client.VirtualMachineInstance(vmi.Namespace).Patch(context.Background(), vmi.Name, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		log.Log.Errorf("failed to remove BackupInProgress from VMI %s/%s :%s", vmi.Namespace, vmi.Name, err)
+		log.Log.Errorf("[BACKUP-DEBUG] failed to remove BackupInProgress from VMI %s/%s: %s", vmi.Namespace, vmi.Name, err)
 		return syncInfoError(err)
 	}
-	log.Log.Info("removed BackupInProgress from VMI")
+	log.Log.Infof("[BACKUP-DEBUG] removed BackupInProgress from VMI")
 
 	return nil
 }
 
 func (ctrl *VMBackupController) updateSourceBackupInProgress(vmi *v1.VirtualMachineInstance, backupName string) error {
+	if vmi == nil || vmi.Status.ChangedBlockTracking == nil {
+		log.Log.Errorf("[BACKUP-DEBUG] vmi or vmi.Status.ChangedBlockTracking is nil, cannot update backup status")
+		return fmt.Errorf("vmi or vmi.Status.ChangedBlockTracking is nil")
+	}
+
 	if vmi.Status.ChangedBlockTracking != nil && vmi.Status.ChangedBlockTracking.BackupStatus != nil {
 		if vmi.Status.ChangedBlockTracking.BackupStatus.BackupName != backupName {
 			return fmt.Errorf(otherBackupInProgress, vmi.Status.ChangedBlockTracking.BackupStatus.BackupName)
@@ -540,53 +593,80 @@ func (ctrl *VMBackupController) updateSourceBackupInProgress(vmi *v1.VirtualMach
 	backupStatus := &v1.VirtualMachineInstanceBackupStatus{
 		BackupName: backupName,
 	}
-	patch, err := patch.New(
-		patch.WithTest("/status/backupStatus", vmi.Status.ChangedBlockTracking.BackupStatus),
-		patch.WithReplace("/status/backupStatus", backupStatus),
-	).GeneratePayload()
+
+	patchOps := patch.New(
+		patch.WithTest("/status/changedBlockTracking/backupStatus", vmi.Status.ChangedBlockTracking.BackupStatus),
+	)
+	if vmi.Status.ChangedBlockTracking.BackupStatus == nil {
+		patchOps.AddOption(patch.WithAdd("/status/changedBlockTracking/backupStatus", backupStatus))
+	} else {
+		patchOps.AddOption(patch.WithReplace("/status/changedBlockTracking/backupStatus", backupStatus))
+	}
+
+	patchBytes, err := patchOps.GeneratePayload()
 	if err != nil {
 		return err
 	}
-	log.Log.Object(vmi).V(4).Infof("Patching VMI: %s", patch)
-	_, err = ctrl.client.VirtualMachineInstance(vmi.Namespace).Patch(context.Background(), vmi.Name, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	log.Log.Object(vmi).Infof("[BACKUP-DEBUG] Patching VMI changedBlockTracking/backupStatus with: %s", patchBytes)
+	_, err = ctrl.client.VirtualMachineInstance(vmi.Namespace).Patch(context.Background(), vmi.Name, k8stypes.JSONPatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		log.Log.Errorf("failed updateSourceBackupInProgress :%s", err)
+		log.Log.Errorf("[BACKUP-DEBUG] failed updateSourceBackupInProgress: %s", err)
 		return err
 	}
-	log.Log.Info("updateSourceBackupInProgress updated")
+	log.Log.Infof("[BACKUP-DEBUG] updateSourceBackupInProgress updated successfully")
 
 	return nil
 }
 
 func (ctrl *VMBackupController) checkBackupCompletion(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) *SyncInfo {
-	log.Log.Info("checkBackupCompletion")
+	log.Log.Infof("[BACKUP-DEBUG] checkBackupCompletion for %s/%s, vmi: %v", backup.Namespace, backup.Name, vmi != nil)
 	if IsBackupDone(backup.Status) {
+		log.Log.Infof("[BACKUP-DEBUG] Backup %s/%s is already done", backup.Namespace, backup.Name)
 		return nil
 	}
 
 	if vmi == nil || vmi.Status.ChangedBlockTracking == nil || vmi.Status.ChangedBlockTracking.BackupStatus == nil {
+		log.Log.Infof("[BACKUP-DEBUG] VMI or backup status not available (vmi: %v, CBT: %v, BackupStatus: %v), starting cleanup",
+			vmi != nil,
+			vmi != nil && vmi.Status.ChangedBlockTracking != nil,
+			vmi != nil && vmi.Status.ChangedBlockTracking != nil && vmi.Status.ChangedBlockTracking.BackupStatus != nil)
 		done, syncInfo := ctrl.cleanup(backup, vmi)
 		if syncInfo != nil {
+			log.Log.Infof("[BACKUP-DEBUG] cleanup returned syncInfo: %+v", syncInfo)
 			return syncInfo
 		}
 		if !done {
-			log.Log.V(3).Info("Cleanup in progress, requeueing to wait for completion")
+			log.Log.Infof("[BACKUP-DEBUG] Cleanup in progress, requeueing to wait for completion")
 			return nil
 		}
-	}
-
-	backupStatus := vmi.Status.ChangedBlockTracking.BackupStatus
-	if !backupStatus.Completed {
+		log.Log.Infof("[BACKUP-DEBUG] Cleanup done but backup status still not available, returning nil")
 		return nil
 	}
 
-	log.Log.Info("Backup completed, performing cleanup before marking as done")
+	backupStatus := vmi.Status.ChangedBlockTracking.BackupStatus
+	abortStatusStr := "nil"
+	if backupStatus.AbortStatus != nil {
+		abortStatusStr = *backupStatus.AbortStatus
+	}
+	backupMsgStr := "nil"
+	if backupStatus.BackupMsg != nil {
+		backupMsgStr = *backupStatus.BackupMsg
+	}
+	log.Log.Infof("[BACKUP-DEBUG] VMI backup status: completed=%v, failed=%v, checkpointName=%s, abortStatus=%s, backupMsg=%s",
+		backupStatus.Completed, backupStatus.Failed, backupStatus.CheckpointName, abortStatusStr, backupMsgStr)
+	if !backupStatus.Completed {
+		log.Log.Infof("[BACKUP-DEBUG] Backup not yet completed, waiting...")
+		return nil
+	}
+
+	log.Log.Infof("[BACKUP-DEBUG] Backup completed, performing cleanup before marking as done")
 	done, syncInfo := ctrl.cleanup(backup, vmi)
 	if syncInfo != nil {
+		log.Log.Infof("[BACKUP-DEBUG] cleanup returned syncInfo: %+v", syncInfo)
 		return syncInfo
 	}
 	if !done {
-		log.Log.V(3).Info("Cleanup in progress, requeueing to wait for completion")
+		log.Log.Infof("[BACKUP-DEBUG] Cleanup in progress, requeueing to wait for completion")
 		return nil
 	}
 
@@ -730,24 +810,39 @@ func isPushMode(backup *backupv1.VirtualMachineBackup) bool {
 }
 
 func (ctrl *VMBackupController) cleanup(backup *backupv1.VirtualMachineBackup, vmi *v1.VirtualMachineInstance) (bool, *SyncInfo) {
-	if isPushMode(backup) && !ctrl.backupTargetPVCDetached(vmi, backup.Spec.PvcName) {
-		return false, ctrl.detachBackupTargetPVC(vmi, *backup.Spec.PvcName)
+	log.Log.Infof("[BACKUP-DEBUG] cleanup: starting cleanup for backup %s/%s", backup.Namespace, backup.Name)
+	if isPushMode(backup) {
+		detached := ctrl.backupTargetPVCDetached(vmi, backup.Spec.PvcName)
+		log.Log.Infof("[BACKUP-DEBUG] cleanup: push mode, PVC detached: %v", detached)
+		if !detached {
+			pvcNameStr := "nil"
+			if backup.Spec.PvcName != nil {
+				pvcNameStr = *backup.Spec.PvcName
+			}
+			log.Log.Infof("[BACKUP-DEBUG] cleanup: detaching backup target PVC %s", pvcNameStr)
+			return false, ctrl.detachBackupTargetPVC(vmi, *backup.Spec.PvcName)
+		}
 	}
 
 	if isBackupDeleting(backup) || IsBackupDone(backup.Status) {
+		log.Log.Infof("[BACKUP-DEBUG] cleanup: removing backup in progress from VMI (deleting: %v, done: %v)",
+			isBackupDeleting(backup), IsBackupDone(backup.Status))
 		if syncInfo := ctrl.removeSourceBackupInProgress(vmi); syncInfo != nil {
+			log.Log.Infof("[BACKUP-DEBUG] cleanup: removeSourceBackupInProgress returned syncInfo: %+v", syncInfo)
 			return false, syncInfo
 		}
 	}
 
-	log.Log.Infof("backup %s cleanup", backup.Name)
+	log.Log.Infof("[BACKUP-DEBUG] backup %s cleanup in final stages", backup.Name)
 	if isBackupDeleting(backup) {
-		log.Log.Infof("removing backup %s finalizer", backup.Name)
+		log.Log.Infof("[BACKUP-DEBUG] removing backup %s finalizer", backup.Name)
 		if syncInfo := ctrl.removeBackupFinalizer(backup); syncInfo != nil {
+			log.Log.Infof("[BACKUP-DEBUG] cleanup: removeBackupFinalizer returned syncInfo: %+v", syncInfo)
 			return false, syncInfo
 		}
 	}
 
+	log.Log.Infof("[BACKUP-DEBUG] cleanup: cleanup completed for backup %s/%s", backup.Namespace, backup.Name)
 	return true, nil
 }
 

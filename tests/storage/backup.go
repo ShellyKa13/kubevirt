@@ -22,6 +22,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,18 +155,47 @@ func deleteVMBackup(virtClient kubecli.KubevirtClient, namespace string, backupN
 	}, 180*time.Second, 2*time.Second).Should(MatchError(errors.IsNotFound, "k8serrors.IsNotFound"))
 }
 
-func createAndVerifyVMBackup(virtClient kubecli.KubevirtClient, vm *v1.VirtualMachine, pvcName string) {
-	createVMBackup(virtClient, vm, pvcName)
-	vmbackup := waitBackupSucceeded(virtClient, vm.Namespace, backupName(vm.Name))
-	Expect(vmbackup.Status.Type).To(Equal(backupv1.Full))
-}
-
 func waitBackupSucceeded(virtClient kubecli.KubevirtClient, namespace string, backupName string) *backupv1.VirtualMachineBackup {
 	var vmbackup *backupv1.VirtualMachineBackup
+
+	By(fmt.Sprintf("Waiting for VirtualMachineBackup %s/%s to succeed", namespace, backupName))
+
+	// Print events associated with the backup
+	defer func() {
+		if vmbackup != nil {
+			eventList, err := virtClient.CoreV1().Events(namespace).List(context.Background(), metav1.ListOptions{
+				FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=VirtualMachineBackup", backupName),
+			})
+			if err == nil && len(eventList.Items) > 0 {
+				By("Events for VirtualMachineBackup:")
+				for _, event := range eventList.Items {
+					By(fmt.Sprintf("  - Type: %s, Reason: %s, Message: %s", event.Type, event.Reason, event.Message))
+				}
+			}
+		}
+	}()
+
 	Eventually(func() *backupv1.VirtualMachineBackupStatus {
 		var err error
 		vmbackup, err = virtClient.VirtualMachineBackup(namespace).Get(context.Background(), backupName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
+
+		// Debug: Print current backup status
+		if vmbackup.Status != nil {
+			By(fmt.Sprintf("Current VirtualMachineBackup status: Type=%s, CheckpointName=%s", vmbackup.Status.Type, vmbackup.Status.CheckpointName))
+			if len(vmbackup.Status.Conditions) > 0 {
+				By("Current conditions:")
+				for _, cond := range vmbackup.Status.Conditions {
+					By(fmt.Sprintf("  - Type: %s, Status: %s, Reason: %s, Message: %s",
+						cond.Type, cond.Status, cond.Reason, cond.Message))
+				}
+			} else {
+				By("No conditions set yet")
+			}
+		} else {
+			By("Backup status is nil")
+		}
+
 		return vmbackup.Status
 	}, 180*time.Second, 2*time.Second).Should(gstruct.PointTo(gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
 		"Conditions": ContainElements(
@@ -228,7 +258,7 @@ func getDoubleTargetPVCSize(originalSize string) string {
 	return smallerQuantity.String()
 }
 
-func createExecutorPod(virtClient kubecli.KubevirtClient, targetPVC *corev1.PersistentVolumeClaim) *corev1.Pod {
+func createExecutorPod(targetPVC *corev1.PersistentVolumeClaim) *corev1.Pod {
 	pod := libstorage.RenderPodWithPVC("verifier", []string{"/bin/bash", "-c", "touch /tmp/startup; while true; do echo hello; sleep 2; done"}, nil, targetPVC)
 	pod.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
@@ -241,7 +271,7 @@ func createExecutorPod(virtClient kubecli.KubevirtClient, targetPVC *corev1.Pers
 }
 
 func verifyBackupTargetPVCOutput(virtClient kubecli.KubevirtClient, targetPVC *corev1.PersistentVolumeClaim, vmName string, numBackupFiles int) {
-	executorPod := createExecutorPod(virtClient, targetPVC)
+	executorPod := createExecutorPod(targetPVC)
 
 	backupOutputPath := fmt.Sprintf("%s/%s", libstorage.DefaultPvcMountPath, vmName)
 
@@ -262,8 +292,64 @@ func verifyBackupTargetPVCOutput(virtClient kubecli.KubevirtClient, targetPVC *c
 	}
 
 	Expect(lsOutputList).To(HaveLen(numBackupFiles))
-	for _, file := range lsOutputList {
-		Expect(file).To(ContainSubstring(backupName(vmName)))
+
+	// Parse expected disk size from FedoraVolumeSize (6Gi)
+	expectedDiskSize := resource.MustParse(cd.FedoraVolumeSize)
+	expectedSizeBytes := expectedDiskSize.Value()
+
+	// Verify each backup directory and its qcow2 files
+	for _, backupDir := range lsOutputList {
+		Expect(backupDir).To(ContainSubstring(backupName(vmName)))
+
+		fullBackupPath := fmt.Sprintf("%s/%s", backupOutputPath, backupDir)
+		lsQcow2Output, err := exec.ExecuteCommandOnPod(
+			executorPod,
+			executorPod.Spec.Containers[0].Name,
+			[]string{"/bin/sh", "-c", fmt.Sprintf("ls -1 %s/*.qcow2 2>/dev/null || echo", fullBackupPath)},
+		)
+		Expect(err).ToNot(HaveOccurred())
+
+		qcow2Files := []string{}
+		if strings.TrimSpace(lsQcow2Output) != "" {
+			qcow2Files = strings.Split(strings.TrimSpace(lsQcow2Output), "\n")
+		}
+		Expect(len(qcow2Files)).To(BeNumerically(">", 0), "Should have at least one qcow2 backup file")
+
+		// Check size of each qcow2 file
+		for _, qcow2File := range qcow2Files {
+			if qcow2File == "" {
+				continue
+			}
+
+			sizeOutput, err := exec.ExecuteCommandOnPod(
+				executorPod,
+				executorPod.Spec.Containers[0].Name,
+				[]string{"/bin/sh", "-c", fmt.Sprintf("stat -c %%s %s", qcow2File)},
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			size, err := strconv.ParseInt(strings.TrimSpace(sizeOutput), 10, 64)
+			Expect(err).ToNot(HaveOccurred())
+
+			By(fmt.Sprintf("Backup file %s size: %d bytes (%.2f GB)", qcow2File, size, float64(size)/(1024*1024*1024)))
+			Expect(size).To(BeNumerically(">", 0), "Backup qcow2 file should have non-zero size")
+
+			// For a full backup, the size should be close to the original disk size
+			// Allow for some variance due to qcow2 metadata and compression
+			// Minimum: 80% of expected size (accounting for compression of sparse regions)
+			// Maximum: 120% of expected size (accounting for qcow2 overhead)
+			minExpectedSize := int64(float64(expectedSizeBytes) * 0.8)
+			maxExpectedSize := int64(float64(expectedSizeBytes) * 1.2)
+
+			Expect(size).To(BeNumerically(">=", minExpectedSize),
+				fmt.Sprintf("Backup file %s size (%d bytes / %.2f GB) should be at least %.2f GB (80%% of %s)",
+					qcow2File, size, float64(size)/(1024*1024*1024),
+					float64(minExpectedSize)/(1024*1024*1024), cd.FedoraVolumeSize))
+			Expect(size).To(BeNumerically("<=", maxExpectedSize),
+				fmt.Sprintf("Backup file %s size (%d bytes / %.2f GB) should be at most %.2f GB (120%% of %s)",
+					qcow2File, size, float64(size)/(1024*1024*1024),
+					float64(maxExpectedSize)/(1024*1024*1024), cd.FedoraVolumeSize))
+		}
 	}
 
 	Eventually(func() error {
