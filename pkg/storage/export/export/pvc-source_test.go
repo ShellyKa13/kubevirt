@@ -21,6 +21,7 @@ package export
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
@@ -282,6 +284,40 @@ var _ = Describe("PVC source", func() {
 		service, err := k8sClient.CoreV1().Services(testNamespace).Get(context.Background(), fmt.Sprintf("%s-%s", exportPrefix, testVMExport.Name), metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(service.Name).To(Equal(fmt.Sprintf("%s-%s", exportPrefix, testVMExport.Name)))
+	})
+
+	It("Should populate export links for PVC with long name (>63 chars)", func() {
+		longPVCName := strings.Repeat("a", validation.DNS1035LabelMaxLength+2)
+		Expect(len(longPVCName)).To(BeNumerically(">", validation.DNS1035LabelMaxLength))
+
+		testVMExport := createPVCVMExport()
+		testVMExport.Spec.Source.Name = longPVCName
+		pvcInformer.GetStore().Add(createPVC(longPVCName, "kubevirt"))
+		expectExporterCreate(k8sClient, k8sv1.PodRunning)
+		controller.RouteCache.Add(routeToHostAndService(components.VirtExportProxyServiceName))
+
+		vmExportClient.Fake.PrependReactor("update", "virtualmachineexports", func(action testing.Action) (handled bool, obj runtime.Object, err error) {
+			update, ok := action.(testing.UpdateAction)
+			Expect(ok).To(BeTrue())
+			vmExport, ok := update.GetObject().(*exportv1.VirtualMachineExport)
+			Expect(ok).To(BeTrue())
+			// Same link population checks as "kubevirt pvc with route" test; we assert structure and Volumes[].Name
+			// (exact URL path segment is hashed for long names so we don't use verifyKubevirtInternal/External here)
+			Expect(vmExport.Status.Links.Internal).ToNot(BeNil())
+			Expect(vmExport.Status.Links.Internal.Volumes).To(HaveLen(1))
+			Expect(vmExport.Status.Links.Internal.Volumes[0].Name).To(Equal(longPVCName))
+			Expect(vmExport.Status.Links.Internal.Volumes[0].Formats).To(HaveLen(2))
+			Expect(vmExport.Status.Links.Internal.Volumes[0].Formats[0].Url).To(ContainSubstring("/volumes/"))
+			Expect(vmExport.Status.Links.External).ToNot(BeNil())
+			Expect(vmExport.Status.Links.External.Volumes).To(HaveLen(1))
+			Expect(vmExport.Status.Links.External.Volumes[0].Name).To(Equal(longPVCName))
+			Expect(vmExport.Status.Links.External.Volumes[0].Formats).To(HaveLen(2))
+			Expect(vmExport.Status.Links.External.Volumes[0].Formats[0].Url).To(ContainSubstring("/volumes/"))
+			return true, vmExport, nil
+		})
+		retry, err := controller.updateVMExport(testVMExport)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(retry).To(BeEquivalentTo(0))
 	})
 
 	It("Should properly update VMExport status with a valid token and no pvc, pending pod", func() {

@@ -46,6 +46,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	v1 "kubevirt.io/api/core/v1"
 	virtv1 "kubevirt.io/api/core/v1"
@@ -1269,7 +1270,6 @@ var _ = Describe(SIG("Export", func() {
 			}
 			Expect(matchesCNOrAltName).To(BeTrue())
 			Expect(vmExport.Status.Links.External.Volumes[0].Formats[0].Url).To(ContainSubstring(host))
-
 		})
 	})
 
@@ -1567,7 +1567,19 @@ var _ = Describe(SIG("Export", func() {
 		if !exists {
 			Fail("Fail test when Filesystem storage is not present")
 		}
-		vm := renderVMWithRegistryImportDataVolume(cd.ContainerDiskCirros, sc)
+		// Use a long DataVolume name (>63 chars) to verify export links are populated
+		longDVName := strings.Repeat("a", validation.DNS1035LabelMaxLength+2)
+		importUrl := cd.DataVolumeImportUrlForContainerDisk(cd.ContainerDiskCirros)
+		dv := libdv.NewDataVolume(
+			libdv.WithName(longDVName),
+			libdv.WithNamespace(testsuite.GetTestNamespace(nil)),
+			libdv.WithRegistryURLSource(importUrl),
+			libdv.WithStorage(
+				libdv.StorageWithStorageClass(sc),
+				libdv.StorageWithVolumeSize(cd.ContainerDiskSizeBySourceURL(importUrl)),
+			),
+		)
+		vm := libstorage.RenderVMWithDataVolumeTemplate(dv)
 		vm.Spec.RunStrategy = virtpointer.P(v1.RunStrategyAlways)
 		vm = createVM(vm)
 		Eventually(func() v1.VirtualMachineInstancePhase {
@@ -1592,7 +1604,14 @@ var _ = Describe(SIG("Export", func() {
 		export = waitForReadyExport(export)
 		checkExportSecretRef(export)
 		Expect(*export.Status.TokenSecretRef).To(Equal(token.Name))
-		verifyKubevirtInternal(export, export.Name, export.Namespace, vm.Spec.Template.Spec.Volumes[0].DataVolume.Name)
+		// Verify export links exist and expose the volume by original DV name (path uses hashed name for long names)
+		Expect(export.Status).ToNot(BeNil())
+		Expect(export.Status.Links).ToNot(BeNil())
+		Expect(export.Status.Links.Internal).ToNot(BeNil())
+		Expect(export.Status.Links.Internal.Volumes).To(HaveLen(1), "long-named DV must have an internal volume link")
+		Expect(export.Status.Links.Internal.Volumes[0].Name).To(Equal(longDVName))
+		Expect(export.Status.Links.Internal.Volumes[0].Formats).To(HaveLen(2))
+		Expect(export.Status.Links.Internal.Volumes[0].Formats[0].Url).To(ContainSubstring("/volumes/"))
 		By("Starting VM, the export should return to pending")
 		vm = libvmops.StartVirtualMachine(vm)
 		waitForExportPhase(export, exportv1.Pending)
